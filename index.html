@@ -1,0 +1,3134 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="BK Replenishment Order - Aplikasi permintaan barang toko, kalkulasi stok otomatis, copy-paste Excel, import database, keamanan PIN, dan sinkronisasi Google Sheets (1 Toko = 1 Sheet)." />
+  <title>BK Replenishment Order</title>
+  <!-- Favicon SVG Inline (tanpa request eksternal) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%234f46e5'/%3E%3Cpath d='M18 22l14-8 14 8-14 8-14-8zm0 10l14 8 14-8M18 42l14 8 14-8' stroke='%23ffffff' stroke-width='4' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E" />
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- SheetJS (xlsx) untuk Import & Export Excel Multi-Sheet -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+    /* Custom scrollbar agar tabel terasa seperti spreadsheet modern */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col antialiased">
+
+  <!-- Toast Notification Container (Pengganti alert) -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0"></div>
+
+  <!-- Modal Konfirmasi Kustom (Pengganti confirm) -->
+  <div id="confirm-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-md w-full p-6 transform transition-all">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-10 h-10 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+          <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+        </div>
+        <h3 id="confirm-title" class="text-lg font-bold text-slate-900">Konfirmasi Tindakan</h3>
+      </div>
+      <p id="confirm-message" class="text-sm text-slate-600 mb-6 leading-relaxed">Apakah Anda yakin ingin melanjutkan?</p>
+      <div class="flex justify-end gap-2">
+        <button id="confirm-cancel-btn" class="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition">Batal</button>
+        <button id="confirm-ok-btn" class="px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 transition">Ya, Lanjutkan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Paste Excel -->
+  <div id="paste-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-2xl w-full p-6">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2.5">
+          <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+            <i data-lucide="clipboard-paste" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-lg font-bold text-slate-900">Copy-Paste Data dari Excel</h3>
+            <p class="text-xs text-slate-500">Salin sel dari Excel lalu tempel (Ctrl+V) pada kotak di bawah</p>
+          </div>
+        </div>
+        <button onclick="closePasteModal()" class="p-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-3 text-xs text-slate-600 space-y-1">
+        <p class="font-semibold text-slate-800">Format Urutan Kolom Excel yang Didukung:</p>
+        <p>• <span class="font-mono bg-white px-1.5 py-0.5 rounded border">Kode Korner | Group Brg | Stock Awal | QTY Penerimaan | QTY Penjualan | QTY Return</span> (6 kolom)</p>
+        <p>• <span class="font-mono bg-white px-1.5 py-0.5 rounded border">Kode Korner | Stock Awal | QTY Penerimaan | QTY Penjualan | QTY Return</span> (5 kolom - Group Brg otomatis dicari dari database)</p>
+      </div>
+
+      <textarea id="excel-paste-area" rows="7" placeholder="Tempel (Ctrl+V) baris data dari Excel di sini...&#10;Contoh:&#10;KRN-01	Baju Koko Dewasa	50	20	45	2&#10;KRN-02	Gamis Syari	15	5	12	0" class="w-full rounded-xl border border-slate-300 p-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"></textarea>
+
+      <div class="flex flex-wrap items-center justify-between gap-3 mt-4">
+        <label class="inline-flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+          <input type="checkbox" id="paste-replace-mode" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500">
+          <span>Ganti semua baris yang ada di form (kosongkan dulu sebelum menempel)</span>
+        </label>
+        <div class="flex gap-2">
+          <button onclick="closePasteModal()" class="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition">Batal</button>
+          <button onclick="processPastedExcel()" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition flex items-center gap-2">
+            <i data-lucide="check" class="w-4 h-4"></i> Proses & Masukkan ke Tabel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- VIEW 1: HALAMAN LOGIN TERPISAH (TIM TOKO VS ADMIN)                     -->
+  <!-- ===================================================================== -->
+  <div id="login-view" class="flex-1 flex items-center justify-center p-4 sm:p-6 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900">
+    <div class="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden">
+      <!-- Header Branding -->
+      <div class="bg-indigo-600 px-6 py-7 text-white text-center relative overflow-hidden">
+        <div class="w-14 h-14 bg-white/15 backdrop-blur-xs rounded-2xl flex items-center justify-center mx-auto mb-3 border border-white/20 shadow-inner">
+          <i data-lucide="boxes" class="w-8 h-8 text-white"></i>
+        </div>
+        <h1 class="text-2xl font-extrabold tracking-tight">BK Replenishment Order</h1>
+        <p class="text-indigo-100 text-xs mt-1">Sistem Permintaan Barang Toko & Sinkronisasi Google Sheets</p>
+      </div>
+
+      <!-- Tab Pilihan Peran -->
+      <div class="grid grid-cols-2 bg-slate-100 p-1.5 m-6 mb-0 rounded-2xl border border-slate-200">
+        <button id="tab-login-store" onclick="switchLoginTab('store')" class="py-2.5 px-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition bg-white text-indigo-700 shadow-xs">
+          <i data-lucide="store" class="w-4 h-4"></i> Login Tim Toko
+        </button>
+        <button id="tab-login-admin" onclick="switchLoginTab('admin')" class="py-2.5 px-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition text-slate-600 hover:text-slate-900">
+          <i data-lucide="shield-check" class="w-4 h-4"></i> Login Admin
+        </button>
+      </div>
+
+      <!-- Form Login Tim Toko -->
+      <form id="form-login-store" onsubmit="handleStoreLogin(event)" class="p-6 space-y-4">
+        <div id="store-lockout-banner" class="hidden bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3 text-xs font-semibold flex items-center gap-2">
+          <i data-lucide="shield-ban" class="w-4 h-4 text-rose-600 shrink-0"></i>
+          <span id="store-lockout-text">Terlalu banyak percobaan gagal. Coba lagi dalam 30 detik.</span>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">Pilih Identitas Toko</label>
+          <div class="relative">
+            <select id="login-store-select" required class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-3 text-sm font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <!-- Diisi otomatis dari database toko -->
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">PIN Keamanan Toko</label>
+          <div class="relative">
+            <input type="password" id="login-store-pin" inputmode="numeric" minlength="4" maxlength="12" required placeholder="Masukkan PIN Toko (min. 4 digit)" class="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm tracking-widest font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <i data-lucide="key-round" class="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5"></i>
+          </div>
+        </div>
+
+        <button id="btn-login-store" type="submit" class="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm shadow-md shadow-indigo-600/20 transition flex items-center justify-center gap-2">
+          <span>Masuk ke Form Toko</span>
+          <i data-lucide="arrow-right" class="w-4 h-4"></i>
+        </button>
+
+        <div id="store-default-pin-hint" class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs text-slate-600 flex items-start justify-between gap-2">
+          <div class="flex items-start gap-2">
+            <i data-lucide="info" class="w-4 h-4 text-indigo-600 shrink-0 mt-0.5"></i>
+            <div>
+              <span class="font-semibold text-slate-800">PIN Awal Tim Toko:</span> <code class="font-mono font-bold bg-white px-1.5 py-0.5 rounded border text-indigo-700">1234</code>. Segera ubah PIN di panel Admin untuk produksi.
+            </div>
+          </div>
+          <button type="button" onclick="dismissPinHint('store')" title="Sembunyikan petunjuk" class="text-slate-400 hover:text-slate-700 p-0.5">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+      </form>
+
+      <!-- Form Login Admin -->
+      <form id="form-login-admin" onsubmit="handleAdminLogin(event)" class="p-6 space-y-4 hidden">
+        <div id="admin-lockout-banner" class="hidden bg-rose-50 border border-rose-200 text-rose-800 rounded-xl p-3 text-xs font-semibold flex items-center gap-2">
+          <i data-lucide="shield-ban" class="w-4 h-4 text-rose-600 shrink-0"></i>
+          <span id="admin-lockout-text">Terlalu banyak percobaan gagal. Coba lagi dalam 30 detik.</span>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-600 mb-1.5">PIN Administrator</label>
+          <div class="relative">
+            <input type="password" id="login-admin-pin" inputmode="numeric" minlength="4" maxlength="12" required placeholder="Masukkan PIN Admin (min. 4 digit)" class="w-full rounded-xl border border-slate-300 px-3.5 py-3 text-sm tracking-widest font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            <i data-lucide="lock" class="w-4 h-4 text-slate-400 absolute right-3.5 top-3.5"></i>
+          </div>
+        </div>
+
+        <button id="btn-login-admin" type="submit" class="w-full py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-sm shadow-md transition flex items-center justify-center gap-2">
+          <span>Masuk Dashboard Admin</span>
+          <i data-lucide="shield" class="w-4 h-4"></i>
+        </button>
+
+        <div id="admin-default-pin-hint" class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 flex items-start justify-between gap-2">
+          <div class="flex items-start gap-2">
+            <i data-lucide="info" class="w-4 h-4 text-amber-600 shrink-0 mt-0.5"></i>
+            <div>
+              <span class="font-semibold">PIN Awal Admin:</span> <code class="font-mono font-bold bg-white px-1.5 py-0.5 rounded border text-amber-800">123456</code>. Ganti PIN pada menu Keamanan PIN setelah login.
+            </div>
+          </div>
+          <button type="button" onclick="dismissPinHint('admin')" title="Sembunyikan petunjuk" class="text-amber-500 hover:text-amber-800 p-0.5">
+            <i data-lucide="x" class="w-3.5 h-3.5"></i>
+          </button>
+        </div>
+      </form>
+
+      <div class="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-400">
+        <span>BK Replenishment Order</span>
+        <span class="font-mono font-semibold text-slate-500">v1.1 Ready</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- TOP NAVBAR (TAMPIL SAAT SUDAH LOGIN)                                  -->
+  <!-- ===================================================================== -->
+  <header id="app-navbar" class="hidden bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
+          <i data-lucide="boxes" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-slate-900 text-sm sm:text-base tracking-tight">BK Replenishment Order</span>
+            <span id="role-badge" class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">TIM TOKO</span>
+          </div>
+          <p id="navbar-subtitle" class="text-xs text-slate-500 hidden sm:block">Portal Permintaan Barang & Monitoring Stok</p>
+        </div>
+      </div>
+
+      <!-- Status Auto-Refresh & Sinkronisasi GSheet -->
+      <div class="flex items-center gap-2 sm:gap-3">
+        <div id="sync-status-pill" class="hidden md:flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs text-slate-600">
+          <span id="sync-dot" class="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span id="sync-status-text">Mode Lokal</span>
+          <span class="text-slate-300">|</span>
+          <span id="last-sync-time" class="font-mono text-[11px] text-slate-500">--:--:--</span>
+        </div>
+        <span class="hidden lg:inline-block text-[11px] font-mono px-2 py-1 rounded-lg bg-slate-100 text-slate-500">v1.1 Ready</span>
+        <button onclick="manualRefreshData()" title="Refresh Data Sekarang" class="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 hover:text-indigo-600 transition">
+          <i id="refresh-icon" data-lucide="refresh-cw" class="w-4 h-4"></i>
+        </button>
+
+        <button onclick="logout()" class="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs sm:text-sm transition flex items-center gap-1.5">
+          <i data-lucide="log-out" class="w-4 h-4"></i>
+          <span>Keluar</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================================================================== -->
+  <!-- VIEW 2: DASHBOARD & FORM INPUT TIM TOKO                               -->
+  <!-- ===================================================================== -->
+  <main id="store-view" class="hidden flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <!-- Kartu Identitas Toko & Ringkasan Status -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="flex items-start gap-3.5">
+          <div class="w-12 h-12 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+            <i data-lucide="store" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="store-info-code" class="text-xs font-mono font-bold px-2.5 py-0.5 rounded-lg bg-slate-900 text-white">TK-001</span>
+              <span id="store-info-region" class="text-xs font-semibold px-2.5 py-0.5 rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-100">Wilayah</span>
+            </div>
+            <h2 id="store-info-name" class="text-xl font-bold text-slate-900 mt-1">Nama Toko</h2>
+            <p class="text-xs text-slate-500 mt-0.5">Tanggal Pengisian: <span id="store-current-date" class="font-semibold text-slate-700"></span></p>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+          <button onclick="openPasteModal()" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold shadow-xs transition flex items-center gap-2">
+            <i data-lucide="clipboard-paste" class="w-4 h-4"></i>
+            <span>Paste dari Excel</span>
+          </button>
+          <button onclick="addOrderRow()" class="px-4 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs sm:text-sm font-semibold transition flex items-center gap-2">
+            <i data-lucide="plus" class="w-4 h-4"></i>
+            <span>Tambah Baris</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Ringkasan Item & Urgent -->
+      <div class="grid grid-cols-2 gap-3">
+        <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col justify-between">
+          <span class="text-xs font-medium text-slate-500">Total Item Diinput</span>
+          <div class="flex items-end justify-between mt-2">
+            <span id="summary-total-items" class="text-2xl font-extrabold text-slate-900">0</span>
+            <span class="p-2 rounded-xl bg-slate-100 text-slate-600"><i data-lucide="list-ordered" class="w-4 h-4"></i></span>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl border border-rose-200 p-4 shadow-xs flex flex-col justify-between bg-gradient-to-br from-white to-rose-50/50">
+          <span class="text-xs font-semibold text-rose-700">Status Urgent</span>
+          <div class="flex items-end justify-between mt-2">
+            <span id="summary-urgent-items" class="text-2xl font-extrabold text-rose-600">0</span>
+            <span class="p-2 rounded-xl bg-rose-100 text-rose-600"><i data-lucide="alert-circle" class="w-4 h-4"></i></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Banner Informasi Rumus & Shortcut -->
+    <div class="bg-indigo-50/80 border border-indigo-200/80 rounded-2xl px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs text-indigo-950">
+      <div class="flex items-center gap-2">
+        <i data-lucide="calculator" class="w-4 h-4 text-indigo-600 shrink-0"></i>
+        <span><strong>Rumus Otomatis:</strong> Stock Akhir = (Stock Awal + QTY Penerimaan) - (QTY Penjualan + QTY Return)</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-600 text-white font-bold text-[11px]">Urgent</span>
+        <span>otomatis muncul jika <strong>Stock Akhir &lt; 2 &times; QTY Penjualan</strong></span>
+      </div>
+    </div>
+
+    <!-- Datalist untuk Autocomplete Kode Korner -->
+    <datalist id="korner-datalist"></datalist>
+
+    <!-- Tabel Input Replenishment Order -->
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+      <div class="overflow-x-auto" id="order-table-wrapper">
+        <table class="w-full text-left border-collapse min-w-[960px]">
+          <thead>
+            <tr class="bg-slate-900 text-white text-xs uppercase tracking-wider">
+              <th class="py-3.5 px-3 text-center w-12">No</th>
+              <th class="py-3.5 px-3 w-36">Kode Korner</th>
+              <th class="py-3.5 px-3 min-w-[200px]">Group Brg</th>
+              <th class="py-3.5 px-3 w-28 text-right">Stock Awal</th>
+              <th class="py-3.5 px-3 w-32 text-right">QTY Penerimaan</th>
+              <th class="py-3.5 px-3 w-32 text-right">QTY Penjualan</th>
+              <th class="py-3.5 px-3 w-28 text-right">QTY Return</th>
+              <th class="py-3.5 px-3 w-32 text-right bg-indigo-950">Stock Akhir</th>
+              <th class="py-3.5 px-3 w-32 text-center">Note / Status</th>
+              <th class="py-3.5 px-3 w-16 text-center">Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="order-tbody" class="divide-y divide-slate-200 text-sm">
+            <!-- Baris input dirender secara dinamis -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Footer Aksi Tabel -->
+      <div class="bg-slate-50 px-4 py-4 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="addOrderRow()" class="px-3.5 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition flex items-center gap-1.5">
+            <i data-lucide="plus-circle" class="w-4 h-4 text-indigo-600"></i> Tambah 1 Baris
+          </button>
+          <button onclick="addMultipleRows(5)" class="px-3.5 py-2 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 text-xs font-semibold transition flex items-center gap-1.5">
+            <i data-lucide="layers" class="w-4 h-4 text-indigo-600"></i> +5 Baris
+          </button>
+          <button onclick="confirmClearOrderForm()" class="px-3.5 py-2 rounded-xl bg-white border border-rose-200 hover:bg-rose-50 text-rose-600 text-xs font-semibold transition flex items-center gap-1.5">
+            <i data-lucide="trash-2" class="w-4 h-4"></i> Reset Form
+          </button>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2.5">
+          <button onclick="exportCurrentStoreExcel()" class="px-4 py-2.5 rounded-xl bg-white border border-slate-300 hover:bg-slate-100 text-slate-800 text-xs sm:text-sm font-semibold transition flex items-center gap-2">
+            <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600"></i>
+            <span>Download Excel Toko Ini</span>
+          </button>
+          <button id="btn-submit-order" onclick="submitReplenishmentOrder()" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs sm:text-sm font-bold shadow-md shadow-indigo-600/20 transition flex items-center gap-2">
+            <i data-lucide="send" class="w-4 h-4"></i>
+            <span>Simpan & Kirim ke Google Sheets</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Riwayat Pengiriman Toko Ini -->
+    <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">Riwayat Laporan Terkirim (Toko Ini)</h3>
+          <p class="text-xs text-slate-500">Data tersimpan otomatis dan tersinkron ke sheet khusus toko Anda di Google Sheets</p>
+        </div>
+        <span id="store-history-count" class="text-xs font-semibold px-3 py-1 rounded-full bg-slate-100 text-slate-700">0 Baris</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse min-w-[820px] text-xs">
+          <thead>
+            <tr class="bg-slate-100 text-slate-600 uppercase">
+              <th class="py-2.5 px-3">Waktu Input</th>
+              <th class="py-2.5 px-3">Kode Korner</th>
+              <th class="py-2.5 px-3">Group Brg</th>
+              <th class="py-2.5 px-3 text-right">Awal</th>
+              <th class="py-2.5 px-3 text-right">Terima</th>
+              <th class="py-2.5 px-3 text-right">Jual</th>
+              <th class="py-2.5 px-3 text-right">Return</th>
+              <th class="py-2.5 px-3 text-right">Akhir</th>
+              <th class="py-2.5 px-3 text-center">Note</th>
+              <th class="py-2.5 px-3 text-center">Sync GSheet</th>
+            </tr>
+          </thead>
+          <tbody id="store-history-tbody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- VIEW 3: DASHBOARD ADMIN                                               -->
+  <!-- ===================================================================== -->
+  <main id="admin-view" class="hidden flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <!-- Navigasi Tab Admin -->
+    <div class="flex flex-wrap gap-2 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs">
+      <button onclick="switchAdminTab('reports')" id="admin-tab-reports" class="admin-nav-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition bg-indigo-600 text-white">
+        <i data-lucide="file-spreadsheet" class="w-4 h-4"></i> Laporan Masuk (1 Toko = 1 Sheet)
+      </button>
+      <button onclick="switchAdminTab('stores')" id="admin-tab-stores" class="admin-nav-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition text-slate-600 hover:bg-slate-100">
+        <i data-lucide="store" class="w-4 h-4"></i> Database Toko
+      </button>
+      <button onclick="switchAdminTab('groups')" id="admin-tab-groups" class="admin-nav-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition text-slate-600 hover:bg-slate-100">
+        <i data-lucide="tags" class="w-4 h-4"></i> Database Group Barang
+      </button>
+      <button onclick="switchAdminTab('gsheet')" id="admin-tab-gsheet" class="admin-nav-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition text-slate-600 hover:bg-slate-100">
+        <i data-lucide="cloud-cog" class="w-4 h-4"></i> Integrasi Google Sheets
+      </button>
+      <button onclick="switchAdminTab('security')" id="admin-tab-security" class="admin-nav-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition text-slate-600 hover:bg-slate-100">
+        <i data-lucide="shield-alert" class="w-4 h-4"></i> Keamanan PIN
+      </button>
+    </div>
+
+    <!-- ------------------------------------------------------------------- -->
+    <!-- ADMIN TAB 1: LAPORAN MASUK PER TOKO (1 TOKO = 1 SHEET)              -->
+    <!-- ------------------------------------------------------------------- -->
+    <section id="admin-panel-reports" class="space-y-4">
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Monitoring Replenishment Order per Toko</h2>
+          <p class="text-xs text-slate-500">Struktur laporan terpisah tiap toko (1 Toko = 1 Sheet) & sinkron otomatis dengan Google Sheets</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button onclick="syncAllPendingToGSheet()" class="px-4 py-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs sm:text-sm font-semibold transition flex items-center gap-2">
+            <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+            <span>Push Ulang ke GSheet</span>
+          </button>
+          <button onclick="exportAllStoresMultiSheetExcel()" class="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold shadow-xs transition flex items-center gap-2">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            <span>Export Excel Multi-Sheet (1 Toko = 1 Sheet)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab Sheet per Toko -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div class="bg-slate-100 px-4 pt-3 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto" id="admin-store-sheet-tabs">
+          <!-- Tab per toko dirender via JS -->
+        </div>
+
+        <div class="p-4 bg-slate-50/60 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div id="admin-active-sheet-info" class="font-semibold text-slate-700">Menampilkan semua laporan</div>
+          <div class="flex items-center gap-2">
+            <label class="inline-flex items-center gap-1.5 cursor-pointer text-slate-600">
+              <input type="checkbox" id="filter-urgent-only" onchange="renderAdminReportsTable()" class="rounded border-slate-300 text-rose-600 focus:ring-rose-500">
+              <span class="font-semibold text-rose-700">Tampilkan Urgent Saja</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse min-w-[960px] text-xs">
+            <thead>
+              <tr class="bg-slate-900 text-white uppercase">
+                <th class="py-3 px-3">Timestamp</th>
+                <th class="py-3 px-3">Kode Toko</th>
+                <th class="py-3 px-3">Nama Toko</th>
+                <th class="py-3 px-3">Wilayah</th>
+                <th class="py-3 px-3">Kode Korner</th>
+                <th class="py-3 px-3">Group Brg</th>
+                <th class="py-3 px-3 text-right">Stock Awal</th>
+                <th class="py-3 px-3 text-right">Terima</th>
+                <th class="py-3 px-3 text-right">Jual</th>
+                <th class="py-3 px-3 text-right">Return</th>
+                <th class="py-3 px-3 text-right bg-indigo-950">Stock Akhir</th>
+                <th class="py-3 px-3 text-center">Note</th>
+                <th class="py-3 px-3 text-center">Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="admin-reports-tbody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------------- -->
+    <!-- ADMIN TAB 2: DATABASE TOKO (CRUD + IMPORT EXCEL)                    -->
+    <!-- ------------------------------------------------------------------- -->
+    <section id="admin-panel-stores" class="hidden space-y-4">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <!-- Form Tambah / Edit Toko -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 id="store-form-title" class="text-base font-bold text-slate-900">Tambah Toko Baru</h3>
+            <button id="store-form-cancel" onclick="resetStoreForm()" class="hidden text-xs text-slate-500 hover:text-slate-800 underline">Batal Edit</button>
+          </div>
+          <form onsubmit="saveStoreItem(event)" class="space-y-3">
+            <input type="hidden" id="edit-store-index" value="-1" />
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Kode Toko</label>
+              <input type="text" id="input-store-code" required placeholder="Contoh: TK-001" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm uppercase focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Nama Toko</label>
+              <input type="text" id="input-store-name" required placeholder="Contoh: BK Solo Paragon" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Wilayah</label>
+              <input type="text" id="input-store-region" required placeholder="Contoh: Jawa Tengah" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+            </div>
+            <button type="submit" class="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition flex items-center justify-center gap-2">
+              <i data-lucide="save" class="w-4 h-4"></i> Simpan Data Toko
+            </button>
+          </form>
+
+          <hr class="border-slate-200" />
+
+          <!-- Import Excel Database Toko -->
+          <div class="space-y-2.5">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700">Import Database Toko dari Excel</h4>
+            <p class="text-xs text-slate-500">Header fleksibel: <code class="bg-slate-100 px-1 rounded">Kode Toko</code>, <code class="bg-slate-100 px-1 rounded">Nama Toko</code>, <code class="bg-slate-100 px-1 rounded">Wilayah</code></p>
+            <label class="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+              <input type="checkbox" id="store-import-replace-mode" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              <span>Mode Timpa (Replace semua data toko lama saat import)</span>
+            </label>
+            <div class="flex flex-col gap-2">
+              <label class="w-full py-2.5 px-3 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50/60 hover:bg-emerald-50 text-emerald-800 text-xs font-semibold cursor-pointer flex items-center justify-center gap-2 transition">
+                <i data-lucide="file-up" class="w-4 h-4"></i>
+                <span>Pilih File Excel (.xlsx / .xls / .csv)</span>
+                <input type="file" accept=".xlsx,.xls,.csv" onchange="importStoresExcel(event)" class="hidden" />
+              </label>
+              <button type="button" onclick="downloadStoreTemplate()" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition flex items-center justify-center gap-1.5">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i> Download Template Excel Toko
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabel Database Toko -->
+        <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
+          <div class="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="text-base font-bold text-slate-900">Daftar Database Toko</h3>
+              <p class="text-xs text-slate-500">Perubahan otomatis memperbarui pilihan login Tim Toko</p>
+            </div>
+            <span id="total-stores-badge" class="text-xs font-bold px-3 py-1 rounded-full bg-indigo-50 text-indigo-700">0 Toko</span>
+          </div>
+          <div class="overflow-x-auto flex-1">
+            <table class="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr class="bg-slate-50 text-slate-600 text-xs uppercase border-b border-slate-200">
+                  <th class="py-3 px-4">Kode Toko</th>
+                  <th class="py-3 px-4">Nama Toko</th>
+                  <th class="py-3 px-4">Wilayah</th>
+                  <th class="py-3 px-4 text-center w-28">Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="admin-stores-tbody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------------- -->
+    <!-- ADMIN TAB 3: DATABASE GROUP BARANG (CRUD + IMPORT EXCEL)            -->
+    <!-- ------------------------------------------------------------------- -->
+    <section id="admin-panel-groups" class="hidden space-y-4">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <!-- Form Tambah / Edit Group Barang -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 id="group-form-title" class="text-base font-bold text-slate-900">Tambah Group Barang</h3>
+            <button id="group-form-cancel" onclick="resetGroupForm()" class="hidden text-xs text-slate-500 hover:text-slate-800 underline">Batal Edit</button>
+          </div>
+          <form onsubmit="saveGroupItem(event)" class="space-y-3">
+            <input type="hidden" id="edit-group-index" value="-1" />
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Kode Korner</label>
+              <input type="text" id="input-group-code" required placeholder="Contoh: KRN-01" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm uppercase focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Nama Group</label>
+              <input type="text" id="input-group-name" required placeholder="Contoh: Koko Dewasa Premium" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+            </div>
+            <button type="submit" class="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition flex items-center justify-center gap-2">
+              <i data-lucide="save" class="w-4 h-4"></i> Simpan Group Barang
+            </button>
+          </form>
+
+          <hr class="border-slate-200" />
+
+          <!-- Import Excel Database Group Barang -->
+          <div class="space-y-2.5">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-700">Import Database Group dari Excel</h4>
+            <p class="text-xs text-slate-500">Header fleksibel: <code class="bg-slate-100 px-1 rounded">Kode Korner</code>, <code class="bg-slate-100 px-1 rounded">Nama Group</code></p>
+            <label class="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+              <input type="checkbox" id="group-import-replace-mode" class="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              <span>Mode Timpa (Replace semua group barang lama saat import)</span>
+            </label>
+            <div class="flex flex-col gap-2">
+              <label class="w-full py-2.5 px-3 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50/60 hover:bg-emerald-50 text-emerald-800 text-xs font-semibold cursor-pointer flex items-center justify-center gap-2 transition">
+                <i data-lucide="file-up" class="w-4 h-4"></i>
+                <span>Pilih File Excel (.xlsx / .xls / .csv)</span>
+                <input type="file" accept=".xlsx,.xls,.csv" onchange="importGroupsExcel(event)" class="hidden" />
+              </label>
+              <button type="button" onclick="downloadGroupTemplate()" class="w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium transition flex items-center justify-center gap-1.5">
+                <i data-lucide="download" class="w-3.5 h-3.5"></i> Download Template Excel Group
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tabel Database Group Barang -->
+        <div class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col">
+          <div class="p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="text-base font-bold text-slate-900">Daftar Database Group Barang</h3>
+              <p class="text-xs text-slate-500">Otomatis muncul sebagai autocomplete saat Tim Toko mengisi Kode Korner</p>
+            </div>
+            <span id="total-groups-badge" class="text-xs font-bold px-3 py-1 rounded-full bg-indigo-50 text-indigo-700">0 Group</span>
+          </div>
+          <div class="overflow-x-auto flex-1">
+            <table class="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr class="bg-slate-50 text-slate-600 text-xs uppercase border-b border-slate-200">
+                  <th class="py-3 px-4 w-40">Kode Korner</th>
+                  <th class="py-3 px-4">Nama Group</th>
+                  <th class="py-3 px-4 text-center w-28">Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="admin-groups-tbody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------------- -->
+    <!-- ADMIN TAB 4: INTEGRASI GOOGLE SHEETS & APPS SCRIPT                  -->
+    <!-- ------------------------------------------------------------------- -->
+    <section id="admin-panel-gsheet" class="hidden space-y-4">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <!-- Pengaturan Webhook URL & Interval Refresh -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-4">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+              <i data-lucide="sheet" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h3 class="text-base font-bold text-slate-900">Koneksi Google Sheets Real-Time</h3>
+              <p class="text-xs text-slate-500">Otomatis membuat 1 sheet terpisah untuk masing-masing toko</p>
+            </div>
+          </div>
+
+          <form onsubmit="saveGSheetSettings(event)" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Google Apps Script Web App URL</label>
+              <input type="url" id="input-gsheet-url" placeholder="https://script.google.com/macros/s/AKfycb.../exec" class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+              <p class="text-[11px] text-slate-500 mt-1">Kosongkan jika hanya menggunakan penyimpanan lokal & export Excel multi-sheet.</p>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Interval Auto-Refresh Berkala</label>
+              <select id="input-refresh-interval" class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm bg-white focus:ring-2 focus:ring-indigo-500 focus:outline-none">
+                <option value="15">Setiap 15 Detik</option>
+                <option value="30" selected>Setiap 30 Detik (Default Produksi)</option>
+                <option value="60">Setiap 60 Detik</option>
+              </select>
+            </div>
+
+            <div class="flex flex-wrap gap-2 pt-1">
+              <button type="submit" class="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition flex items-center gap-2">
+                <i data-lucide="save" class="w-4 h-4"></i> Simpan Konfigurasi
+              </button>
+              <button type="button" onclick="testGSheetConnection()" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-sm font-semibold transition flex items-center gap-2">
+                <i data-lucide="wifi" class="w-4 h-4"></i> Uji Tarik Data (GET)
+              </button>
+            </div>
+          </form>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-600 space-y-1.5">
+            <p class="font-bold text-slate-800">Langkah Setup Google Sheets (2 Menit):</p>
+            <ol class="list-decimal list-inside space-y-1">
+              <li>Buka Google Spreadsheet baru di Google Drive Anda.</li>
+              <li>Klik menu <strong>Extensions &rarr; Apps Script</strong>.</li>
+              <li>Hapus kode bawaan, lalu tempel kode <strong>Code.gs</strong> di samping.</li>
+              <li>Klik <strong>Deploy &rarr; New deployment &rarr; Web app</strong>.</li>
+              <li>Set <em>Execute as: Me</em> dan <em>Who has access: Anyone</em>, lalu salin URL Web App ke form di atas.</li>
+            </ol>
+          </div>
+        </div>
+
+        <!-- Kode Google Apps Script Siap Salin -->
+        <div class="bg-slate-900 text-slate-100 rounded-2xl p-5 shadow-xs flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-xs font-bold">Code.gs</span>
+                <span class="text-xs text-slate-400">Google Apps Script (1 Toko = 1 Sheet)</span>
+              </div>
+              <button onclick="copyAppsScriptCode()" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition flex items-center gap-1.5">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Salin Kode
+              </button>
+            </div>
+            <pre id="apps-script-code" class="text-[11px] font-mono bg-slate-950/90 border border-slate-800 rounded-xl p-3.5 overflow-x-auto max-h-[360px] text-emerald-300 leading-relaxed"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------------- -->
+    <!-- ADMIN TAB 5: PENGATURAN KEAMANAN PIN & PUBLISH PRODUKSI             -->
+    <!-- ------------------------------------------------------------------- -->
+    <section id="admin-panel-security" class="hidden max-w-3xl space-y-4">
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-5">
+        <div class="flex items-center gap-3">
+          <div class="w-11 h-11 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center">
+            <i data-lucide="key-round" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-slate-900">Pengaturan Keamanan PIN Akses</h3>
+            <p class="text-xs text-slate-500">PIN disimpan dalam bentuk hash SHA-256 dan dilindungi rate-limit 5x gagal / 30 detik</p>
+          </div>
+        </div>
+
+        <form onsubmit="updateSecurityPins(event)" class="space-y-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">PIN Baru Tim Toko</label>
+              <input type="password" id="setting-store-pin" inputmode="numeric" minlength="4" maxlength="12" placeholder="Kosongkan jika tidak diubah" class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-mono font-bold tracking-widest focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+              <p class="text-[11px] text-slate-500 mt-1">Minimal 4 karakter/digit (tidak boleh kosong jika ingin mengganti)</p>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">PIN Baru Admin</label>
+              <input type="password" id="setting-admin-pin" inputmode="numeric" minlength="4" maxlength="12" placeholder="Kosongkan jika tidak diubah" class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-sm font-mono font-bold tracking-widest focus:ring-2 focus:ring-indigo-500 focus:outline-none" />
+              <p class="text-[11px] text-slate-500 mt-1">Minimal 4 karakter/digit (tidak boleh kosong jika ingin mengganti)</p>
+            </div>
+          </div>
+
+          <button type="submit" class="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold transition flex items-center gap-2">
+            <i data-lucide="shield-check" class="w-4 h-4"></i> Simpan Perubahan PIN
+          </button>
+        </form>
+      </div>
+
+      <!-- Panduan Publish Produksi & Reset Data Lokal -->
+      <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <h4 class="text-sm font-bold text-slate-900">Panduan Publish Produksi (v1.1 Ready)</h4>
+            <p class="text-xs text-slate-500">Deploy single-file <code class="bg-slate-100 px-1 rounded">index.html</code> ke GitHub Pages, Vercel, atau Netlify via HTTPS</p>
+          </div>
+          <button type="button" onclick="confirmFactoryResetLocal()" class="px-3.5 py-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition flex items-center gap-1.5">
+            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Reset Data Lokal
+          </button>
+        </div>
+        <ol class="list-decimal list-inside text-xs text-slate-600 space-y-1.5 bg-slate-50 border border-slate-200 rounded-xl p-4">
+          <li>Simpan file ini sebagai <code class="font-mono font-semibold text-slate-800">index.html</code> lalu upload ke repository GitHub Pages, Vercel, atau Netlify.</li>
+          <li>Buka Google Sheet tujuan &rarr; <strong>Extensions &rarr; Apps Script</strong> &rarr; tempel <code class="font-mono">Code.gs</code> &rarr; Deploy Web App (<em>Who has access: Anyone</em>).</li>
+          <li>Masuk sebagai Admin, isi URL Web App di tab <strong>Integrasi Google Sheets</strong>, lalu ubah PIN default Tim Toko & Admin di atas.</li>
+        </ol>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // =========================================================================
+    // 0. GLOBAL ERROR BOUNDARY & ANTI-CRASH HANDLERS
+    // =========================================================================
+    function handleFatalError(sourceLabel, detail) {
+      console.error(`[BK Replenishment Order - ${sourceLabel}]`, detail);
+      try {
+        showToast('Terjadi kendala teknis yang berhasil ditangani. Halaman tetap aman.', 'error');
+      } catch (_) {
+        // Fallback aman jika DOM belum siap
+      }
+    }
+
+    window.addEventListener('error', function (event) {
+      handleFatalError('window.onerror', event.error || event.message || 'Unknown error');
+    });
+
+    window.addEventListener('unhandledrejection', function (event) {
+      handleFatalError('unhandledrejection', event.reason || 'Unhandled promise rejection');
+    });
+
+    // =========================================================================
+    // 1. KONFIGURASI STATE, HASHING SHA-256 & RATE-LIMITING
+    // =========================================================================
+    const APP_VERSION = 'v1.1 Ready';
+    const STORAGE_KEYS = {
+      STORES: 'bk_ro_stores_v1',
+      GROUPS: 'bk_ro_groups_v1',
+      ORDERS: 'bk_ro_orders_v1',
+      CONFIG: 'bk_ro_config_v1',
+      SESSION: 'bk_ro_session_v1',
+      SECURITY: 'bk_ro_security_v1'
+    };
+
+    const DEFAULT_STORES = [
+      { code: 'TK-001', name: 'BK Solo Paragon', region: 'Jawa Tengah' },
+      { code: 'TK-002', name: 'BK Hartono Mall Yogyakarta', region: 'DI Yogyakarta' },
+      { code: 'TK-003', name: 'BK Tunjungan Plaza Surabaya', region: 'Jawa Timur' },
+      { code: 'TK-004', name: 'BK Grand Indonesia Jakarta', region: 'DKI Jakarta' }
+    ];
+
+    const DEFAULT_GROUPS = [
+      { code: 'KRN-01', name: 'Koko Dewasa Lengan Panjang' },
+      { code: 'KRN-02', name: 'Koko Dewasa Lengan Pendek' },
+      { code: 'KRN-03', name: 'Gamis Syari Premium' },
+      { code: 'KRN-04', name: 'Tunik & Blouse Muslimah' },
+      { code: 'KRN-05', name: 'Koko Anak & Sarimbit' },
+      { code: 'KRN-06', name: 'Peci, Sarung & Aksesoris' }
+    ];
+
+    const DEFAULT_CONFIG = {
+      gsheetUrl: '',
+      refreshInterval: 30,
+      lastUpdated: 0,
+      syncStatus: 'local' // 'local' | 'syncing' | 'connected' | 'error'
+    };
+
+    // Hash SHA-256 untuk PIN awal (tidak menyimpan PIN plain-text di variabel kode)
+    async function hashPinValue(pinStr) {
+      const clean = String(pinStr || '').trim();
+      try {
+        if (window.crypto && window.crypto.subtle && typeof TextEncoder !== 'undefined') {
+          const encoder = new TextEncoder();
+          const data = encoder.encode('BK_RO_SALT::' + clean);
+          const hashBuffer = await window.crypto.subtle.digest('SHA-256', data);
+          const hashArray = Array.from(new Uint8Array(hashBuffer));
+          return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+      } catch (err) {
+        console.warn('Web Crypto SHA-256 fallback digunakan:', err);
+      }
+      // Fallback deterministik jika non-HTTPS/lingkungan terbatas
+      let h1 = 0x811c9dc5;
+      const salted = 'BK_RO_FALLBACK::' + clean;
+      for (let i = 0; i < salted.length; i++) {
+        h1 ^= salted.charCodeAt(i);
+        h1 = Math.imul(h1, 0x01000193);
+      }
+      return 'fb_' + (h1 >>> 0).toString(16).padStart(8, '0') + '_' + clean.length;
+    }
+
+    const APPS_SCRIPT_TEMPLATE = `/**
+ * Google Apps Script - BK Replenishment Order (v1.1 Production)
+ * Fitur: LockService anti-race condition, sanitasi nama sheet (1 Toko = 1 Sheet),
+ * sinkronisasi order, master toko, group barang, dan metadata PIN.
+ */
+function sanitizeSheetTitle(title) {
+  var cleaned = String(title || 'Sheet_Toko')
+    .replace(/[\\\\\\/\\?\\*\\[\\]:]/g, '-')
+    .replace(/\\s+/g, ' ')
+    .trim();
+  return (cleaned || 'Sheet_Toko').substring(0, 95);
+}
+
+function getOrCreateSheet(ss, title, headers) {
+  var safeTitle = sanitizeSheetTitle(title);
+  var sheet = ss.getSheetByName(safeTitle);
+  if (!sheet) {
+    sheet = ss.insertSheet(safeTitle);
+    if (headers && headers.length > 0) {
+      sheet.appendRow(headers);
+      sheet.getRange(1, 1, 1, headers.length)
+        .setFontWeight('bold')
+        .setBackground('#1e1b4b')
+        .setFontColor('#ffffff');
+      sheet.setFrozenRows(1);
+    }
+  }
+  return sheet;
+}
+
+function doPost(e) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(15000);
+    var payload = JSON.parse((e && e.postData && e.postData.contents) ? e.postData.contents : '{}');
+    var action = payload.action || 'append_orders';
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    if (action === 'sync_master') {
+      if (Array.isArray(payload.stores)) {
+        var sSheet = getOrCreateSheet(ss, '_Master_Toko', ['Kode Toko', 'Nama Toko', 'Wilayah', 'Updated At']);
+        sSheet.clearContents();
+        sSheet.appendRow(['Kode Toko', 'Nama Toko', 'Wilayah', 'Updated At']);
+        payload.stores.forEach(function(st) {
+          sSheet.appendRow([st.code || '', st.name || '', st.region || '', new Date().toISOString()]);
+        });
+      }
+      if (Array.isArray(payload.groups)) {
+        var gSheet = getOrCreateSheet(ss, '_Master_Group', ['Kode Korner', 'Nama Group', 'Updated At']);
+        gSheet.clearContents();
+        gSheet.appendRow(['Kode Korner', 'Nama Group', 'Updated At']);
+        payload.groups.forEach(function(gr) {
+          gSheet.appendRow([gr.code || '', gr.name || '', new Date().toISOString()]);
+        });
+      }
+      if (payload.securityMeta) {
+        var mSheet = getOrCreateSheet(ss, '_Security_Meta', ['Key', 'Value', 'Updated At']);
+        mSheet.appendRow(['PIN_UPDATED', JSON.stringify(payload.securityMeta), new Date().toISOString()]);
+      }
+      return ContentService
+        .createTextOutput(JSON.stringify({ status: 'success', action: 'sync_master', ts: Date.now() }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+
+    var rows = Array.isArray(payload.rows) ? payload.rows : [];
+    var headers = [
+      'Timestamp', 'Kode Toko', 'Nama Toko', 'Wilayah',
+      'Kode Korner', 'Group Brg', 'Stock Awal',
+      'QTY Penerimaan', 'QTY Penjualan', 'QTY Return',
+      'Stock Akhir', 'Note'
+    ];
+
+    rows.forEach(function(item) {
+      var sheetTitle = (item.storeCode || 'TK') + ' - ' + (item.storeName || 'Toko');
+      var sheet = getOrCreateSheet(ss, sheetTitle, headers);
+      sheet.appendRow([
+        item.timestamp || new Date().toLocaleString('id-ID'),
+        item.storeCode || '',
+        item.storeName || '',
+        item.region || '',
+        item.kornerCode || '',
+        item.groupName || '',
+        Number(item.stockAwal) || 0,
+        Number(item.qtyPenerimaan) || 0,
+        Number(item.qtyPenjualan) || 0,
+        Number(item.qtyReturn) || 0,
+        Number(item.stockAkhir) || 0,
+        item.note || '-'
+      ]);
+
+      var lastRow = sheet.getLastRow();
+      if (item.note === 'Urgent') {
+        sheet.getRange(lastRow, 12)
+          .setBackground('#fee2e2')
+          .setFontColor('#b91c1c')
+          .setFontWeight('bold');
+      }
+    });
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: 'success', inserted: rows.length, ts: Date.now() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: 'error', message: String(err) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } finally {
+    try { lock.releaseLock(); } catch (eLock) {}
+  }
+}
+
+function doGet(e) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheets = ss.getSheets();
+    var allData = [];
+
+    sheets.forEach(function(sheet) {
+      var name = sheet.getName();
+      if (name.indexOf('_') === 0) return;
+      var data = sheet.getDataRange().getValues();
+      if (data.length > 1 && data[0][0] === 'Timestamp') {
+        for (var i = 1; i < data.length; i++) {
+          allData.push({
+            timestamp: String(data[i][0] || ''),
+            storeCode: String(data[i][1] || ''),
+            storeName: String(data[i][2] || ''),
+            region: String(data[i][3] || ''),
+            kornerCode: String(data[i][4] || ''),
+            groupName: String(data[i][5] || ''),
+            stockAwal: Number(data[i][6]) || 0,
+            qtyPenerimaan: Number(data[i][7]) || 0,
+            qtyPenjualan: Number(data[i][8]) || 0,
+            qtyReturn: Number(data[i][9]) || 0,
+            stockAkhir: Number(data[i][10]) || 0,
+            note: String(data[i][11] || '-'),
+            synced: true
+          });
+        }
+      }
+    });
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: 'success', rows: allData, ts: Date.now() }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ status: 'error', message: String(err) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}`;
+
+    let appState = {
+      stores: [],
+      groups: [],
+      orders: [],
+      config: { ...DEFAULT_CONFIG },
+      security: {
+        storePinHash: '',
+        adminPinHash: '',
+        hideStoreHint: false,
+        hideAdminHint: false,
+        storeFailedAttempts: 0,
+        storeLockUntil: 0,
+        adminFailedAttempts: 0,
+        adminLockUntil: 0
+      },
+      session: null,
+      draftRows: [],
+      selectedAdminStoreSheet: 'ALL',
+      refreshTimerId: null,
+      isSyncing: false,
+      isSubmittingOrder: false,
+      lockoutIntervalId: null
+    };
+
+    // =========================================================================
+    // 2. INISIALISASI & PENYIMPANAN PERSISTEN (DEFENSIVE LOCALSTORAGE)
+    // =========================================================================
+    function safeJsonParse(raw, fallback) {
+      if (!raw) return fallback;
+      try {
+        return JSON.parse(raw);
+      } catch (err) {
+        console.warn('JSON parse gagal, memakai fallback:', err);
+        return fallback;
+      }
+    }
+
+    async function ensureDefaultSecurityHashes() {
+      const existing = safeJsonParse(localStorage.getItem(STORAGE_KEYS.SECURITY), null);
+      if (existing && existing.storePinHash && existing.adminPinHash) {
+        appState.security = { ...appState.security, ...existing };
+        return;
+      }
+      appState.security.storePinHash = await hashPinValue('1234');
+      appState.security.adminPinHash = await hashPinValue('123456');
+      saveSecurity();
+    }
+
+    function saveSecurity() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.SECURITY, JSON.stringify(appState.security));
+      } catch (err) {
+        handleFatalError('saveSecurity', err);
+      }
+    }
+
+    async function loadAllDataFromStorage() {
+      try {
+        const savedStores = safeJsonParse(localStorage.getItem(STORAGE_KEYS.STORES), null);
+        appState.stores = Array.isArray(savedStores) ? savedStores : [...DEFAULT_STORES];
+        if (!Array.isArray(savedStores)) {
+          localStorage.setItem(STORAGE_KEYS.STORES, JSON.stringify(appState.stores));
+        }
+
+        const savedGroups = safeJsonParse(localStorage.getItem(STORAGE_KEYS.GROUPS), null);
+        appState.groups = Array.isArray(savedGroups) ? savedGroups : [...DEFAULT_GROUPS];
+        if (!Array.isArray(savedGroups)) {
+          localStorage.setItem(STORAGE_KEYS.GROUPS, JSON.stringify(appState.groups));
+        }
+
+        const savedOrders = safeJsonParse(localStorage.getItem(STORAGE_KEYS.ORDERS), []);
+        appState.orders = Array.isArray(savedOrders) ? savedOrders : [];
+
+        const savedConfig = safeJsonParse(localStorage.getItem(STORAGE_KEYS.CONFIG), null);
+        appState.config = { ...DEFAULT_CONFIG, ...(savedConfig || {}) };
+        if (!savedConfig) {
+          localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(appState.config));
+        }
+
+        await ensureDefaultSecurityHashes();
+
+        const savedSession = safeJsonParse(sessionStorage.getItem(STORAGE_KEYS.SESSION), null);
+        appState.session = savedSession && savedSession.role ? savedSession : null;
+      } catch (err) {
+        handleFatalError('loadAllDataFromStorage', err);
+      }
+    }
+
+    function saveStores() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.STORES, JSON.stringify(appState.stores));
+      } catch (err) {
+        handleFatalError('saveStores', err);
+      }
+    }
+
+    function saveGroups() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.GROUPS, JSON.stringify(appState.groups));
+      } catch (err) {
+        handleFatalError('saveGroups', err);
+      }
+    }
+
+    function saveOrders() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(appState.orders));
+      } catch (err) {
+        handleFatalError('saveOrders', err);
+      }
+    }
+
+    function saveConfig() {
+      try {
+        localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(appState.config));
+      } catch (err) {
+        handleFatalError('saveConfig', err);
+      }
+    }
+
+    function markDataUpdated() {
+      appState.config.lastUpdated = Date.now();
+      saveConfig();
+    }
+
+    // =========================================================================
+    // 3. SISTEM NOTIFIKASI (TOAST) & MODAL KONFIRMASI
+    // =========================================================================
+    function showToast(message, type = 'info') {
+      try {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+        const colors = {
+          success: 'bg-emerald-600 text-white border-emerald-700',
+          error: 'bg-rose-600 text-white border-rose-700',
+          warning: 'bg-amber-500 text-white border-amber-600',
+          info: 'bg-slate-900 text-white border-slate-800'
+        };
+        const icons = {
+          success: 'check-circle-2',
+          error: 'alert-octagon',
+          warning: 'alert-triangle',
+          info: 'info'
+        };
+
+        const toast = document.createElement('div');
+        toast.className = `${colors[type] || colors.info} pointer-events-auto border rounded-2xl px-4 py-3 shadow-lg flex items-center gap-3 text-xs sm:text-sm font-medium transform transition-all duration-300 translate-y-0 opacity-100`;
+        toast.innerHTML = `
+          <i data-lucide="${icons[type] || 'info'}" class="w-4 h-4 shrink-0"></i>
+          <span class="flex-1">${escapeHtml(message)}</span>
+        `;
+        container.appendChild(toast);
+        if (window.lucide) lucide.createIcons({ nodes: [toast] });
+
+        setTimeout(() => {
+          toast.classList.add('opacity-0', '-translate-y-2');
+          setTimeout(() => toast.remove(), 300);
+        }, 3500);
+      } catch (err) {
+        console.warn('Toast error:', err);
+      }
+    }
+
+    function showConfirm(title, message, onConfirm) {
+      const modal = document.getElementById('confirm-modal');
+      document.getElementById('confirm-title').textContent = title;
+      document.getElementById('confirm-message').textContent = message;
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+
+      const okBtn = document.getElementById('confirm-ok-btn');
+      const cancelBtn = document.getElementById('confirm-cancel-btn');
+
+      const cleanup = () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      };
+
+      okBtn.onclick = () => {
+        cleanup();
+        if (typeof onConfirm === 'function') onConfirm();
+      };
+      cancelBtn.onclick = cleanup;
+    }
+
+    // =========================================================================
+    // 4. LOGIKA LOGIN, RATE-LIMITING & SESSION (TIM TOKO VS ADMIN)
+    // =========================================================================
+    function dismissPinHint(role) {
+      if (role === 'store') {
+        appState.security.hideStoreHint = true;
+      } else {
+        appState.security.hideAdminHint = true;
+      }
+      saveSecurity();
+      updatePinHintVisibility();
+    }
+
+    function updatePinHintVisibility() {
+      const storeHint = document.getElementById('store-default-pin-hint');
+      const adminHint = document.getElementById('admin-default-pin-hint');
+      if (storeHint) storeHint.classList.toggle('hidden', Boolean(appState.security.hideStoreHint));
+      if (adminHint) adminHint.classList.toggle('hidden', Boolean(appState.security.hideAdminHint));
+    }
+
+    function updateLockoutUI() {
+      const now = Date.now();
+      const storeRemaining = Math.max(0, Math.ceil((appState.security.storeLockUntil - now) / 1000));
+      const adminRemaining = Math.max(0, Math.ceil((appState.security.adminLockUntil - now) / 1000));
+
+      const storeBanner = document.getElementById('store-lockout-banner');
+      const storeText = document.getElementById('store-lockout-text');
+      const storeBtn = document.getElementById('btn-login-store');
+      if (storeBanner && storeText && storeBtn) {
+        if (storeRemaining > 0) {
+          storeBanner.classList.remove('hidden');
+          storeText.textContent = `Terlalu banyak percobaan gagal. Kunci sementara aktif: ${storeRemaining} detik.`;
+          storeBtn.disabled = true;
+        } else {
+          storeBanner.classList.add('hidden');
+          storeBtn.disabled = false;
+          if (appState.security.storeLockUntil > 0) {
+            appState.security.storeLockUntil = 0;
+            appState.security.storeFailedAttempts = 0;
+            saveSecurity();
+          }
+        }
+      }
+
+      const adminBanner = document.getElementById('admin-lockout-banner');
+      const adminText = document.getElementById('admin-lockout-text');
+      const adminBtn = document.getElementById('btn-login-admin');
+      if (adminBanner && adminText && adminBtn) {
+        if (adminRemaining > 0) {
+          adminBanner.classList.remove('hidden');
+          adminText.textContent = `Terlalu banyak percobaan gagal. Kunci sementara aktif: ${adminRemaining} detik.`;
+          adminBtn.disabled = true;
+        } else {
+          adminBanner.classList.add('hidden');
+          adminBtn.disabled = false;
+          if (appState.security.adminLockUntil > 0) {
+            appState.security.adminLockUntil = 0;
+            appState.security.adminFailedAttempts = 0;
+            saveSecurity();
+          }
+        }
+      }
+    }
+
+    function startLockoutTicker() {
+      if (appState.lockoutIntervalId) clearInterval(appState.lockoutIntervalId);
+      appState.lockoutIntervalId = setInterval(updateLockoutUI, 1000);
+      updateLockoutUI();
+    }
+
+    function recordFailedLogin(role) {
+      const now = Date.now();
+      if (role === 'store') {
+        appState.security.storeFailedAttempts = (appState.security.storeFailedAttempts || 0) + 1;
+        if (appState.security.storeFailedAttempts >= 5) {
+          appState.security.storeLockUntil = now + 30000;
+          saveSecurity();
+          updateLockoutUI();
+          showToast('5x gagal login Tim Toko. Dikunci sementara selama 30 detik.', 'error');
+          return;
+        }
+        saveSecurity();
+        showToast(`PIN Tim Toko salah (${appState.security.storeFailedAttempts}/5 percobaan).`, 'error');
+      } else {
+        appState.security.adminFailedAttempts = (appState.security.adminFailedAttempts || 0) + 1;
+        if (appState.security.adminFailedAttempts >= 5) {
+          appState.security.adminLockUntil = now + 30000;
+          saveSecurity();
+          updateLockoutUI();
+          showToast('5x gagal login Admin. Dikunci sementara selama 30 detik.', 'error');
+          return;
+        }
+        saveSecurity();
+        showToast(`PIN Admin salah (${appState.security.adminFailedAttempts}/5 percobaan).`, 'error');
+      }
+    }
+
+    function resetLoginAttempts(role) {
+      if (role === 'store') {
+        appState.security.storeFailedAttempts = 0;
+        appState.security.storeLockUntil = 0;
+      } else {
+        appState.security.adminFailedAttempts = 0;
+        appState.security.adminLockUntil = 0;
+      }
+      saveSecurity();
+      updateLockoutUI();
+    }
+
+    function renderLoginStoreDropdown() {
+      const select = document.getElementById('login-store-select');
+      if (!select) return;
+      if (!Array.isArray(appState.stores) || appState.stores.length === 0) {
+        select.innerHTML = `<option value="">-- Belum ada database toko (Hubungi Admin) --</option>`;
+        return;
+      }
+      select.innerHTML = appState.stores.map(s =>
+        `<option value="${escapeHtml(s.code)}">${escapeHtml(s.code)} - ${escapeHtml(s.name)} (${escapeHtml(s.region)})</option>`
+      ).join('');
+    }
+
+    function switchLoginTab(role) {
+      const btnStore = document.getElementById('tab-login-store');
+      const btnAdmin = document.getElementById('tab-login-admin');
+      const formStore = document.getElementById('form-login-store');
+      const formAdmin = document.getElementById('form-login-admin');
+
+      if (role === 'store') {
+        btnStore.className = 'py-2.5 px-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition bg-white text-indigo-700 shadow-xs';
+        btnAdmin.className = 'py-2.5 px-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition text-slate-600 hover:text-slate-900';
+        formStore.classList.remove('hidden');
+        formAdmin.classList.add('hidden');
+      } else {
+        btnAdmin.className = 'py-2.5 px-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition bg-white text-slate-900 shadow-xs';
+        btnStore.className = 'py-2.5 px-3 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition text-slate-600 hover:text-slate-900';
+        formAdmin.classList.remove('hidden');
+        formStore.classList.add('hidden');
+      }
+    }
+
+    async function handleStoreLogin(e) {
+      e.preventDefault();
+      updateLockoutUI();
+      if (Date.now() < appState.security.storeLockUntil) {
+        showToast('Login Tim Toko sedang dikunci sementara. Tunggu beberapa detik.', 'warning');
+        return;
+      }
+
+      const storeCode = document.getElementById('login-store-select').value;
+      const enteredPin = document.getElementById('login-store-pin').value.trim();
+
+      if (!storeCode) {
+        showToast('Silakan pilih toko terlebih dahulu.', 'error');
+        return;
+      }
+      if (!enteredPin || enteredPin.length < 4) {
+        showToast('PIN minimal 4 digit/karakter.', 'warning');
+        return;
+      }
+
+      const enteredHash = await hashPinValue(enteredPin);
+      if (enteredHash !== appState.security.storePinHash) {
+        recordFailedLogin('store');
+        return;
+      }
+
+      const storeObj = appState.stores.find(s => s.code === storeCode);
+      if (!storeObj) {
+        showToast('Data toko tidak ditemukan.', 'error');
+        return;
+      }
+
+      resetLoginAttempts('store');
+      appState.session = { role: 'store', store: { ...storeObj } };
+      try {
+        sessionStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(appState.session));
+      } catch (_) {}
+      document.getElementById('login-store-pin').value = '';
+      showToast(`Selamat datang, Tim ${storeObj.name}!`, 'success');
+      renderAppView();
+    }
+
+    async function handleAdminLogin(e) {
+      e.preventDefault();
+      updateLockoutUI();
+      if (Date.now() < appState.security.adminLockUntil) {
+        showToast('Login Admin sedang dikunci sementara. Tunggu beberapa detik.', 'warning');
+        return;
+      }
+
+      const enteredPin = document.getElementById('login-admin-pin').value.trim();
+      if (!enteredPin || enteredPin.length < 4) {
+        showToast('PIN minimal 4 digit/karakter.', 'warning');
+        return;
+      }
+
+      const enteredHash = await hashPinValue(enteredPin);
+      if (enteredHash !== appState.security.adminPinHash) {
+        recordFailedLogin('admin');
+        return;
+      }
+
+      resetLoginAttempts('admin');
+      appState.session = { role: 'admin' };
+      try {
+        sessionStorage.setItem(STORAGE_KEYS.SESSION, JSON.stringify(appState.session));
+      } catch (_) {}
+      document.getElementById('login-admin-pin').value = '';
+      showToast('Login Administrator berhasil.', 'success');
+      renderAppView();
+    }
+
+    function logout() {
+      appState.session = null;
+      try {
+        sessionStorage.removeItem(STORAGE_KEYS.SESSION);
+      } catch (_) {}
+      renderAppView();
+      showToast('Anda telah keluar dari sistem.', 'info');
+    }
+
+    function renderAppView() {
+      const loginView = document.getElementById('login-view');
+      const navbar = document.getElementById('app-navbar');
+      const storeView = document.getElementById('store-view');
+      const adminView = document.getElementById('admin-view');
+
+      updatePinHintVisibility();
+      updateLockoutUI();
+      updateSyncStatusBadge();
+
+      if (!appState.session) {
+        loginView.classList.remove('hidden');
+        navbar.classList.add('hidden');
+        storeView.classList.add('hidden');
+        adminView.classList.add('hidden');
+        renderLoginStoreDropdown();
+        return;
+      }
+
+      loginView.classList.add('hidden');
+      navbar.classList.remove('hidden');
+
+      if (appState.session.role === 'store') {
+        const updatedStore = appState.stores.find(s => s.code === appState.session.store.code);
+        if (updatedStore) appState.session.store = { ...updatedStore };
+
+        storeView.classList.remove('hidden');
+        adminView.classList.add('hidden');
+
+        document.getElementById('role-badge').textContent = 'TIM TOKO';
+        document.getElementById('role-badge').className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700';
+        document.getElementById('navbar-subtitle').textContent = `${appState.session.store.code} - ${appState.session.store.name}`;
+
+        initStoreDashboard();
+      } else {
+        storeView.classList.add('hidden');
+        adminView.classList.remove('hidden');
+
+        document.getElementById('role-badge').textContent = 'ADMINISTRATOR';
+        document.getElementById('role-badge').className = 'text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-slate-900 text-white';
+        document.getElementById('navbar-subtitle').textContent = 'Manajemen Master Data, PIN & Sinkronisasi GSheet';
+
+        initAdminDashboard();
+      }
+
+      if (window.lucide) lucide.createIcons();
+    }
+
+    // =========================================================================
+    // 5. DASHBOARD TIM TOKO & RUMUS REPLENISHMENT ORDER AKURAT
+    // =========================================================================
+    function initStoreDashboard() {
+      const store = appState.session.store;
+      document.getElementById('store-info-code').textContent = store.code;
+      document.getElementById('store-info-name').textContent = store.name;
+      document.getElementById('store-info-region').textContent = store.region;
+
+      const todayStr = new Date().toLocaleDateString('id-ID', {
+        weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+      });
+      document.getElementById('store-current-date').textContent = todayStr;
+
+      updateKornerDatalist();
+
+      if (!Array.isArray(appState.draftRows) || appState.draftRows.length === 0) {
+        appState.draftRows = [createEmptyOrderRow(), createEmptyOrderRow(), createEmptyOrderRow()];
+      }
+      renderOrderTable();
+      renderStoreHistoryTable();
+    }
+
+    function updateKornerDatalist() {
+      const datalist = document.getElementById('korner-datalist');
+      if (!datalist) return;
+      datalist.innerHTML = appState.groups.map(g =>
+        `<option value="${escapeHtml(g.code)}">${escapeHtml(g.name)}</option>`
+      ).join('');
+    }
+
+    function createEmptyOrderRow() {
+      return {
+        id: 'row_' + Math.random().toString(36).substring(2, 9),
+        kornerCode: '',
+        groupName: '',
+        stockAwal: '',
+        qtyPenerimaan: '',
+        qtyPenjualan: '',
+        qtyReturn: ''
+      };
+    }
+
+    function sanitizeNumericInput(val) {
+      if (val === '' || val === null || val === undefined) return 0;
+      const num = Number(val);
+      if (!Number.isFinite(num)) return 0;
+      return Math.round(num * 100) / 100;
+    }
+
+    /**
+     * Rumus Inti:
+     * Stock Akhir = (Stock Awal + QTY Penerimaan) - (QTY Penjualan + QTY Return)
+     * Aturan "Urgent": Stock Akhir < 2 * QTY Penjualan
+     */
+    function calculateRowMetrics(row) {
+      const hasInput = String(row.kornerCode || '').trim() !== '' ||
+                       String(row.groupName || '').trim() !== '' ||
+                       row.stockAwal !== '' ||
+                       row.qtyPenerimaan !== '' ||
+                       row.qtyPenjualan !== '' ||
+                       row.qtyReturn !== '';
+
+      const awal = sanitizeNumericInput(row.stockAwal);
+      const terima = sanitizeNumericInput(row.qtyPenerimaan);
+      const jual = sanitizeNumericInput(row.qtyPenjualan);
+      const ret = sanitizeNumericInput(row.qtyReturn);
+
+      const stockAkhir = Math.round(((awal + terima) - (jual + ret)) * 100) / 100;
+      const threshold = 2 * jual;
+      const isNegativeStock = hasInput && stockAkhir < 0;
+      const isUrgent = hasInput && (stockAkhir < threshold);
+
+      let note = '-';
+      if (hasInput) {
+        if (isUrgent) {
+          note = 'Urgent';
+        } else if (jual === 0) {
+          note = 'Stok Ada (Jual 0)';
+        } else {
+          note = 'Aman';
+        }
+      }
+
+      return {
+        hasInput,
+        awal,
+        terima,
+        jual,
+        ret,
+        stockAkhir,
+        isNegativeStock,
+        isUrgent,
+        note
+      };
+    }
+
+    /**
+     * Rumus Inti:
+     * Stock Akhir = (Stock Awal + QTY Penerimaan) - (QTY Penjualan + QTY Return)
+     * Bila Stock Akhir < 2 * QTY Penjualan => Note = "Urgent"
+     */
+    function calculateRowMetrics(row) {
+      const hasInput = row.kornerCode.trim() !== '' ||
+                       row.groupName.trim() !== '' ||
+                       row.stockAwal !== '' ||
+                       row.qtyPenerimaan !== '' ||
+                       row.qtyPenjualan !== '' ||
+                       row.qtyReturn !== '';
+
+      const awal = Number(row.stockAwal) || 0;
+      const terima = Number(row.qtyPenerimaan) || 0;
+      const jual = Number(row.qtyPenjualan) || 0;
+      const ret = Number(row.qtyReturn) || 0;
+
+      const stockAkhir = (awal + terima) - (jual + ret);
+      const isUrgent = hasInput && (stockAkhir < (2 * jual));
+
+      return {
+        hasInput,
+        awal,
+        terima,
+        jual,
+        ret,
+        stockAkhir,
+        isUrgent,
+        note: isUrgent ? 'Urgent' : (hasInput ? 'Aman' : '-')
+      };
+    }
+
+    function renderOrderTable() {
+      const tbody = document.getElementById('order-tbody');
+      tbody.innerHTML = '';
+
+      appState.draftRows.forEach((row, index) => {
+        const metrics = calculateRowMetrics(row);
+        const tr = document.createElement('tr');
+        tr.className = metrics.isUrgent
+          ? 'bg-rose-50/40 hover:bg-rose-50/70 transition'
+          : 'hover:bg-slate-50 transition';
+
+        tr.innerHTML = `
+          <td class="py-2 px-3 text-center font-semibold text-slate-400 text-xs">${index + 1}</td>
+          <td class="py-2 px-2">
+            <input type="text" list="korner-datalist" value="${escapeHtml(row.kornerCode)}"
+              onchange="handleKornerChange(${index}, this.value)"
+              oninput="handleKornerInput(${index}, this.value)"
+              placeholder="Kode..."
+              class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-mono font-semibold uppercase focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white" />
+          </td>
+          <td class="py-2 px-2">
+            <input type="text" id="group-input-${index}" value="${escapeHtml(row.groupName)}"
+              oninput="updateDraftField(${index}, 'groupName', this.value)"
+              placeholder="Nama Group Barang..."
+              class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white" />
+          </td>
+          <td class="py-2 px-2">
+            <input type="number" min="0" value="${row.stockAwal}"
+              oninput="updateDraftNumber(${index}, 'stockAwal', this.value)"
+              placeholder="0"
+              class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-right font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white" />
+          </td>
+          <td class="py-2 px-2">
+            <input type="number" min="0" value="${row.qtyPenerimaan}"
+              oninput="updateDraftNumber(${index}, 'qtyPenerimaan', this.value)"
+              placeholder="0"
+              class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-right font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white" />
+          </td>
+          <td class="py-2 px-2">
+            <input type="number" min="0" value="${row.qtyPenjualan}"
+              oninput="updateDraftNumber(${index}, 'qtyPenjualan', this.value)"
+              placeholder="0"
+              class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-right font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white" />
+          </td>
+          <td class="py-2 px-2">
+            <input type="number" min="0" value="${row.qtyReturn}"
+              oninput="updateDraftNumber(${index}, 'qtyReturn', this.value)"
+              placeholder="0"
+              class="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs text-right font-mono focus:ring-2 focus:ring-indigo-500 focus:outline-none bg-white" />
+          </td>
+          <td id="stock-akhir-cell-${index}" class="py-2 px-3 text-right font-mono font-bold text-sm ${metrics.stockAkhir < 0 ? 'text-rose-600' : 'text-indigo-900'} bg-indigo-50/40">
+            ${metrics.hasInput ? metrics.stockAkhir : '-'}
+          </td>
+          <td id="note-cell-${index}" class="py-2 px-3 text-center">
+            ${renderNoteBadge(metrics)}
+          </td>
+          <td class="py-2 px-2 text-center">
+            <button onclick="removeOrderRow(${index})" title="Hapus Baris" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      updateOrderSummaryCards();
+      lucide.createIcons({ nodes: [tbody] });
+    }
+
+    function renderNoteBadge(metrics) {
+      if (!metrics.hasInput) {
+        return `<span class="text-xs text-slate-400">-</span>`;
+      }
+      if (metrics.isUrgent) {
+        return `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-rose-600 text-white text-[11px] font-bold shadow-xs animate-pulse">
+          <i data-lucide="alert-triangle" class="w-3 h-3"></i> Urgent
+        </span>`;
+      }
+      if (metrics.jual === 0) {
+        return `<span class="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-semibold" title="QTY Penjualan 0; ambang batas 2x penjualan adalah 0">Jual 0</span>`;
+      }
+      return `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-semibold">Aman</span>`;
+    }
+
+    function handleKornerInput(index, val) {
+      const cleanVal = val.trim().toUpperCase();
+      appState.draftRows[index].kornerCode = cleanVal;
+      const foundGroup = appState.groups.find(g => g.code.toUpperCase() === cleanVal);
+      if (foundGroup) {
+        appState.draftRows[index].groupName = foundGroup.name;
+        const groupInput = document.getElementById(`group-input-${index}`);
+        if (groupInput) groupInput.value = foundGroup.name;
+      }
+      refreshSingleRowCalculation(index);
+    }
+
+    function handleKornerChange(index, val) {
+      handleKornerInput(index, val);
+    }
+
+    function updateDraftField(index, field, val) {
+      appState.draftRows[index][field] = val;
+      refreshSingleRowCalculation(index);
+    }
+
+    function updateDraftNumber(index, field, val) {
+      appState.draftRows[index][field] = val;
+      refreshSingleRowCalculation(index);
+    }
+
+    function refreshSingleRowCalculation(index) {
+      const row = appState.draftRows[index];
+      if (!row) return;
+      const metrics = calculateRowMetrics(row);
+      const stockCell = document.getElementById(`stock-akhir-cell-${index}`);
+      const noteCell = document.getElementById(`note-cell-${index}`);
+
+      if (stockCell) {
+        stockCell.textContent = metrics.hasInput ? metrics.stockAkhir : '-';
+        stockCell.title = metrics.isNegativeStock ? 'Peringatan: Stock Akhir minus / selisih data' : '';
+        stockCell.className = `py-2 px-3 text-right font-mono font-bold text-sm ${metrics.isNegativeStock ? 'text-rose-600' : 'text-indigo-900'} bg-indigo-50/40`;
+      }
+      if (noteCell) {
+        noteCell.innerHTML = renderNoteBadge(metrics);
+        if (window.lucide) lucide.createIcons({ nodes: [noteCell] });
+      }
+      updateOrderSummaryCards();
+    }
+
+    function updateOrderSummaryCards() {
+      let validCount = 0;
+      let urgentCount = 0;
+      appState.draftRows.forEach(r => {
+        const m = calculateRowMetrics(r);
+        if (m.hasInput) validCount++;
+        if (m.isUrgent) urgentCount++;
+      });
+      document.getElementById('summary-total-items').textContent = validCount;
+      document.getElementById('summary-urgent-items').textContent = urgentCount;
+    }
+
+    function addOrderRow() {
+      appState.draftRows.push(createEmptyOrderRow());
+      renderOrderTable();
+    }
+
+    function addMultipleRows(count) {
+      for (let i = 0; i < count; i++) {
+        appState.draftRows.push(createEmptyOrderRow());
+      }
+      renderOrderTable();
+    }
+
+    function removeOrderRow(index) {
+      if (appState.draftRows.length <= 1) {
+        appState.draftRows[0] = createEmptyOrderRow();
+      } else {
+        appState.draftRows.splice(index, 1);
+      }
+      renderOrderTable();
+    }
+
+    function confirmClearOrderForm() {
+      showConfirm(
+        'Reset Form Permintaan?',
+        'Semua data yang belum dikirim di tabel input akan dikosongkan.',
+        () => {
+          appState.draftRows = [createEmptyOrderRow(), createEmptyOrderRow(), createEmptyOrderRow()];
+          renderOrderTable();
+          showToast('Form input telah direset.', 'info');
+        }
+      );
+    }
+
+    // =========================================================================
+    // 6. FITUR COPY-PASTE LANGSUNG DARI EXCEL (MODAL & DIRECT CTRL+V)
+    // =========================================================================
+    function openPasteModal() {
+      const modal = document.getElementById('paste-modal');
+      document.getElementById('excel-paste-area').value = '';
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      setTimeout(() => document.getElementById('excel-paste-area').focus(), 100);
+    }
+
+    function closePasteModal() {
+      const modal = document.getElementById('paste-modal');
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }
+
+    function parseExcelTextToRows(rawText) {
+      const lines = String(rawText || '').split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+      const parsedRows = [];
+      let skippedLines = 0;
+
+      lines.forEach(line => {
+        // Deteksi pemisah Tab (Excel copy), titik koma, atau koma multi-kolom
+        let cols = [];
+        if (line.includes('\t')) {
+          cols = line.split('\t');
+        } else if (line.includes(';')) {
+          cols = line.split(';');
+        } else if ((line.match(/,/g) || []).length >= 2) {
+          cols = line.split(',');
+        } else {
+          cols = [line];
+        }
+
+        const firstColUpper = String(cols[0] || '').trim().toUpperCase();
+        if (!firstColUpper || firstColUpper === 'KODE KORNER' || firstColUpper === 'KODE' || firstColUpper === 'NO') {
+          skippedLines++;
+          return;
+        }
+
+        let kornerCode = '';
+        let groupName = '';
+        let stockAwal = 0;
+        let qtyPenerimaan = 0;
+        let qtyPenjualan = 0;
+        let qtyReturn = 0;
+
+        if (cols.length >= 6) {
+          kornerCode = String(cols[0] || '').trim().toUpperCase();
+          groupName = String(cols[1] || '').trim();
+          stockAwal = parseNumberClean(cols[2]);
+          qtyPenerimaan = parseNumberClean(cols[3]);
+          qtyPenjualan = parseNumberClean(cols[4]);
+          qtyReturn = parseNumberClean(cols[5]);
+        } else if (cols.length === 5) {
+          kornerCode = String(cols[0] || '').trim().toUpperCase();
+          stockAwal = parseNumberClean(cols[1]);
+          qtyPenerimaan = parseNumberClean(cols[2]);
+          qtyPenjualan = parseNumberClean(cols[3]);
+          qtyReturn = parseNumberClean(cols[4]);
+        } else if (cols.length >= 2) {
+          kornerCode = String(cols[0] || '').trim().toUpperCase();
+          groupName = String(cols[1] || '').trim();
+          stockAwal = cols[2] !== undefined ? parseNumberClean(cols[2]) : 0;
+          qtyPenerimaan = cols[3] !== undefined ? parseNumberClean(cols[3]) : 0;
+          qtyPenjualan = cols[4] !== undefined ? parseNumberClean(cols[4]) : 0;
+          qtyReturn = cols[5] !== undefined ? parseNumberClean(cols[5]) : 0;
+        } else {
+          skippedLines++;
+          return;
+        }
+
+        // Cocokkan otomatis Kode Korner ke Group Brg jika kosong atau tidak sesuai
+        const matchedGroup = appState.groups.find(g => g.code.toUpperCase() === kornerCode);
+        if (matchedGroup && (!groupName || groupName === '-')) {
+          groupName = matchedGroup.name;
+        }
+
+        if (!kornerCode && !groupName) {
+          skippedLines++;
+          return;
+        }
+
+        parsedRows.push({
+          id: 'row_' + Math.random().toString(36).substring(2, 9),
+          kornerCode,
+          groupName,
+          stockAwal,
+          qtyPenerimaan,
+          qtyPenjualan,
+          qtyReturn
+        });
+      });
+
+      return { parsedRows, skippedLines };
+    }
+
+    function parseNumberClean(val) {
+      if (val === undefined || val === null || val === '') return 0;
+      if (typeof val === 'number') return Number.isFinite(val) ? Math.round(val * 100) / 100 : 0;
+      // Normalisasi format angka Indonesia/Excel: spasi, pemisah ribuan titik/koma, tanda minus
+      let str = String(val).trim().replace(/\s+/g, '');
+      // Jika format ribuan pakai titik (misal 1.250 atau 1.250,50)
+      if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(str)) {
+        str = str.replace(/\./g, '').replace(',', '.');
+      } else {
+        // Hapus koma pemisah ribuan standar (misal 1,250)
+        str = str.replace(/,/g, '');
+      }
+      str = str.replace(/[^0-9.-]/g, '');
+      const num = parseFloat(str);
+      return Number.isFinite(num) ? Math.round(num * 100) / 100 : 0;
+    }
+
+    function processPastedExcel() {
+      const rawText = document.getElementById('excel-paste-area').value;
+      const replaceMode = document.getElementById('paste-replace-mode').checked;
+
+      if (!rawText.trim()) {
+        showToast('Kotak tempel masih kosong. Silakan paste data dari Excel.', 'warning');
+        return;
+      }
+
+      const { parsedRows: newRows, skippedLines } = parseExcelTextToRows(rawText);
+      if (newRows.length === 0) {
+        showToast('Format data tidak dikenali. Pastikan menyalin kolom dari Excel.', 'error');
+        return;
+      }
+
+      if (replaceMode) {
+        appState.draftRows = newRows;
+      } else {
+        const nonEmptyExisting = appState.draftRows.filter(r => calculateRowMetrics(r).hasInput);
+        appState.draftRows = [...nonEmptyExisting, ...newRows];
+      }
+
+      closePasteModal();
+      renderOrderTable();
+      showToast(`Berhasil di-parse: ${newRows.length} baris (${skippedLines} baris header/kosong diabaikan).`, 'success');
+    }
+
+    document.addEventListener('paste', function (e) {
+      if (!appState.session || appState.session.role !== 'store') return;
+      const modalOpen = !document.getElementById('paste-modal').classList.contains('hidden');
+      if (modalOpen) return;
+
+      const activeEl = document.activeElement;
+      const tableWrapper = document.getElementById('order-table-wrapper');
+      if (!tableWrapper || !tableWrapper.contains(activeEl)) return;
+
+      const clipText = (e.clipboardData || window.clipboardData).getData('text');
+      if (clipText && (clipText.includes('\t') || clipText.includes('\n'))) {
+        e.preventDefault();
+        const { parsedRows: newRows, skippedLines } = parseExcelTextToRows(clipText);
+        if (newRows.length > 0) {
+          const nonEmptyExisting = appState.draftRows.filter(r => calculateRowMetrics(r).hasInput);
+          appState.draftRows = [...nonEmptyExisting, ...newRows];
+          renderOrderTable();
+          showToast(`Paste Excel: ${newRows.length} baris masuk (${skippedLines} diabaikan).`, 'success');
+        }
+      }
+    });
+
+    // =========================================================================
+    // 7. SIMPAN & KIRIM KE GOOGLE SHEETS + ANTI DOUBLE-SUBMIT
+    // =========================================================================
+    async function submitReplenishmentOrder() {
+      if (appState.isSubmittingOrder) {
+        showToast('Pengiriman sedang diproses, mohon tunggu...', 'info');
+        return;
+      }
+
+      const store = appState.session && appState.session.store;
+      if (!store || !store.code) {
+        showToast('Sesi toko tidak valid. Silakan login ulang.', 'error');
+        return;
+      }
+
+      const validRows = appState.draftRows.filter(r =>
+        String(r.kornerCode || '').trim() !== '' || String(r.groupName || '').trim() !== ''
+      );
+
+      if (validRows.length === 0) {
+        showToast('Isi minimal 1 baris valid (Kode Korner atau Group Brg) sebelum mengirim.', 'warning');
+        return;
+      }
+
+      appState.isSubmittingOrder = true;
+      const btn = document.getElementById('btn-submit-order');
+      const originalBtnHtml = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> <span>Mengirim...</span>`;
+        if (window.lucide) lucide.createIcons({ nodes: [btn] });
+      }
+
+      try {
+        const nowStr = new Date().toLocaleString('id-ID', {
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit'
+        });
+
+        const preparedRecords = validRows.map(r => {
+          const m = calculateRowMetrics(r);
+          const cleanKorner = String(r.kornerCode || '').trim().toUpperCase() || '-';
+          const matchedGroup = appState.groups.find(g => g.code.toUpperCase() === cleanKorner);
+          const cleanGroup = String(r.groupName || '').trim() || (matchedGroup ? matchedGroup.name : '-');
+
+          return {
+            id: 'ord_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+            timestamp: nowStr,
+            storeCode: store.code,
+            storeName: store.name,
+            region: store.region,
+            kornerCode: cleanKorner,
+            groupName: cleanGroup,
+            stockAwal: m.awal,
+            qtyPenerimaan: m.terima,
+            qtyPenjualan: m.jual,
+            qtyReturn: m.ret,
+            stockAkhir: m.stockAkhir,
+            note: m.isUrgent ? 'Urgent' : (m.jual === 0 ? 'Stok Ada (Jual 0)' : 'Aman'),
+            synced: false
+          };
+        });
+
+        appState.orders = [...preparedRecords, ...appState.orders];
+        saveOrders();
+        markDataUpdated();
+
+        if (appState.config.gsheetUrl) {
+          await pushRowsToGoogleSheets(preparedRecords);
+        } else {
+          appState.config.syncStatus = 'local';
+          saveConfig();
+          updateSyncStatusBadge();
+          showToast(`Tersimpan ${preparedRecords.length} baris secara lokal!`, 'success');
+        }
+
+        appState.draftRows = [createEmptyOrderRow(), createEmptyOrderRow(), createEmptyOrderRow()];
+        renderOrderTable();
+        renderStoreHistoryTable();
+      } catch (err) {
+        handleFatalError('submitReplenishmentOrder', err);
+      } finally {
+        appState.isSubmittingOrder = false;
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = originalBtnHtml;
+          if (window.lucide) lucide.createIcons({ nodes: [btn] });
+        }
+      }
+    }
+
+    function renderStoreHistoryTable() {
+      const store = appState.session.store;
+      const tbody = document.getElementById('store-history-tbody');
+      const storeOrders = appState.orders.filter(o => o.storeCode === store.code);
+
+      document.getElementById('store-history-count').textContent = `${storeOrders.length} Baris`;
+
+      if (storeOrders.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="py-6 text-center text-slate-400">Belum ada riwayat laporan terkirim untuk toko ini.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = storeOrders.slice(0, 50).map(o => `
+        <tr class="hover:bg-slate-50">
+          <td class="py-2.5 px-3 font-mono text-slate-500">${escapeHtml(o.timestamp)}</td>
+          <td class="py-2.5 px-3 font-mono font-bold text-slate-800">${escapeHtml(o.kornerCode)}</td>
+          <td class="py-2.5 px-3 font-medium text-slate-800">${escapeHtml(o.groupName)}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${o.stockAwal}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${o.qtyPenerimaan}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${o.qtyPenjualan}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${o.qtyReturn}</td>
+          <td class="py-2.5 px-3 text-right font-mono font-bold text-indigo-900">${o.stockAkhir}</td>
+          <td class="py-2.5 px-3 text-center">
+            ${o.note === 'Urgent'
+              ? '<span class="px-2 py-0.5 rounded-full bg-rose-600 text-white font-bold text-[11px]">Urgent</span>'
+              : '<span class="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold text-[11px]">Aman</span>'}
+          </td>
+          <td class="py-2.5 px-3 text-center">
+            ${o.synced
+              ? '<span class="text-emerald-600 font-semibold">Terkirim</span>'
+              : '<span class="text-amber-600 font-semibold">Lokal</span>'}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    // =========================================================================
+    // 8. DASHBOARD ADMIN (LAPORAN 1 TOKO = 1 SHEET, MASTER DATA, IMPORT EXCEL)
+    // =========================================================================
+    function initAdminDashboard() {
+      renderAdminStoreSheetTabs();
+      renderAdminReportsTable();
+      renderAdminStoresTable();
+      renderAdminGroupsTable();
+
+      // Isi form pengaturan GSheet & PIN
+      document.getElementById('input-gsheet-url').value = appState.config.gsheetUrl || '';
+      document.getElementById('input-refresh-interval').value = String(appState.config.refreshInterval || 15);
+      document.getElementById('apps-script-code').textContent = APPS_SCRIPT_TEMPLATE;
+      document.getElementById('setting-store-pin').value = appState.config.storePin;
+      document.getElementById('setting-admin-pin').value = appState.config.adminPin;
+    }
+
+    function switchAdminTab(tabName) {
+      const tabs = ['reports', 'stores', 'groups', 'gsheet', 'security'];
+      tabs.forEach(t => {
+        const btn = document.getElementById(`admin-tab-${t}`);
+        const panel = document.getElementById(`admin-panel-${t}`);
+        if (t === tabName) {
+          btn.className = 'admin-nav-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition bg-indigo-600 text-white shadow-xs';
+          panel.classList.remove('hidden');
+        } else {
+          btn.className = 'admin-nav-btn px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-2 transition text-slate-600 hover:bg-slate-100';
+          panel.classList.add('hidden');
+        }
+      });
+    }
+
+    // --- Tab Sheet per Toko (Mencerminkan Struktur Google Sheets) ---
+    function renderAdminStoreSheetTabs() {
+      const container = document.getElementById('admin-store-sheet-tabs');
+      if (!container) return;
+
+      const allCount = appState.orders.length;
+      let html = `
+        <button onclick="selectAdminSheetTab('ALL')"
+          class="px-3.5 py-2 rounded-t-xl text-xs font-bold border-t border-x transition shrink-0 flex items-center gap-1.5 ${appState.selectedAdminStoreSheet === 'ALL' ? 'bg-white text-indigo-700 border-slate-200' : 'bg-slate-200/70 text-slate-600 border-transparent hover:bg-slate-200'}">
+          <i data-lucide="layers" class="w-3.5 h-3.5"></i> Semua Toko (${allCount})
+        </button>
+      `;
+
+      appState.stores.forEach(s => {
+        const count = appState.orders.filter(o => o.storeCode === s.code).length;
+        const active = appState.selectedAdminStoreSheet === s.code;
+        html += `
+          <button onclick="selectAdminSheetTab('${s.code}')"
+            class="px-3.5 py-2 rounded-t-xl text-xs font-bold border-t border-x transition shrink-0 flex items-center gap-1.5 ${active ? 'bg-white text-emerald-700 border-slate-200' : 'bg-slate-200/70 text-slate-600 border-transparent hover:bg-slate-200'}">
+            <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+            <span>${escapeHtml(s.code)} - ${escapeHtml(s.name)}</span>
+            <span class="px-1.5 py-0.2 rounded-full text-[10px] ${active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-300 text-slate-700'}">${count}</span>
+          </button>
+        `;
+      });
+
+      container.innerHTML = html;
+      lucide.createIcons({ nodes: [container] });
+    }
+
+    function selectAdminSheetTab(sheetKey) {
+      appState.selectedAdminStoreSheet = sheetKey;
+      renderAdminStoreSheetTabs();
+      renderAdminReportsTable();
+    }
+
+    function renderAdminReportsTable() {
+      const tbody = document.getElementById('admin-reports-tbody');
+      const urgentOnly = document.getElementById('filter-urgent-only').checked;
+      const infoLabel = document.getElementById('admin-active-sheet-info');
+
+      let filtered = [...appState.orders];
+      if (appState.selectedAdminStoreSheet !== 'ALL') {
+        filtered = filtered.filter(o => o.storeCode === appState.selectedAdminStoreSheet);
+        const storeObj = appState.stores.find(s => s.code === appState.selectedAdminStoreSheet);
+        infoLabel.textContent = storeObj
+          ? `Sheet Aktif: "${storeObj.code} - ${storeObj.name}" (${filtered.length} baris)`
+          : `Sheet Aktif: ${appState.selectedAdminStoreSheet}`;
+      } else {
+        infoLabel.textContent = `Menampilkan Gabungan Seluruh Sheet Toko (${filtered.length} baris)`;
+      }
+
+      if (urgentOnly) {
+        filtered = filtered.filter(o => o.note === 'Urgent');
+      }
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="13" class="py-8 text-center text-slate-400">Belum ada data replenishment pada sheet ini.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(o => `
+        <tr class="${o.note === 'Urgent' ? 'bg-rose-50/40 hover:bg-rose-50/70' : 'hover:bg-slate-50'}">
+          <td class="py-2.5 px-3 font-mono text-slate-500 whitespace-nowrap">${escapeHtml(o.timestamp)}</td>
+          <td class="py-2.5 px-3 font-mono font-bold text-slate-900">${escapeHtml(o.storeCode)}</td>
+          <td class="py-2.5 px-3 font-medium text-slate-800">${escapeHtml(o.storeName)}</td>
+          <td class="py-2.5 px-3 text-slate-600">${escapeHtml(o.region)}</td>
+          <td class="py-2.5 px-3 font-mono font-bold text-indigo-700">${escapeHtml(o.kornerCode)}</td>
+          <td class="py-2.5 px-3 font-medium text-slate-800">${escapeHtml(o.groupName)}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${o.stockAwal}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${o.qtyPenerimaan}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${o.qtyPenjualan}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${o.qtyReturn}</td>
+          <td class="py-2.5 px-3 text-right font-mono font-bold text-indigo-950 bg-indigo-50/40">${o.stockAkhir}</td>
+          <td class="py-2.5 px-3 text-center">
+            ${o.note === 'Urgent'
+              ? '<span class="px-2.5 py-0.5 rounded-full bg-rose-600 text-white font-bold text-[11px]">Urgent</span>'
+              : '<span class="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-semibold text-[11px]">Aman</span>'}
+          </td>
+          <td class="py-2.5 px-3 text-center">
+            <button onclick="deleteOrderRecord('${o.id}')" title="Hapus Baris" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50">
+              <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+            </button>
+          </td>
+        </tr>
+      `).join('');
+
+      lucide.createIcons({ nodes: [tbody] });
+    }
+
+    function deleteOrderRecord(id) {
+      showConfirm('Hapus Baris Laporan?', 'Data baris ini akan dihapus dari rekap lokal.', () => {
+        appState.orders = appState.orders.filter(o => o.id !== id);
+        saveOrders();
+        renderAdminStoreSheetTabs();
+        renderAdminReportsTable();
+        showToast('Baris laporan berhasil dihapus.', 'info');
+      });
+    }
+
+    async function syncAllPendingToGSheet() {
+      if (!appState.config.gsheetUrl) {
+        showToast('Masukkan Google Apps Script Web App URL di tab Integrasi Google Sheets terlebih dahulu.', 'warning');
+        switchAdminTab('gsheet');
+        return;
+      }
+      if (appState.orders.length === 0) {
+        showToast('Tidak ada data laporan untuk dikirim.', 'info');
+        return;
+      }
+      await pushRowsToGoogleSheets(appState.orders);
+    }
+
+    // --- CRUD & Import Excel Database Toko ---
+    function renderAdminStoresTable() {
+      const tbody = document.getElementById('admin-stores-tbody');
+      document.getElementById('total-stores-badge').textContent = `${appState.stores.length} Toko`;
+
+      if (appState.stores.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="py-8 text-center text-slate-400">Belum ada database toko.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = appState.stores.map((s, idx) => `
+        <tr class="hover:bg-slate-50">
+          <td class="py-3 px-4 font-mono font-bold text-indigo-700">${escapeHtml(s.code)}</td>
+          <td class="py-3 px-4 font-medium text-slate-900">${escapeHtml(s.name)}</td>
+          <td class="py-3 px-4 text-slate-600">${escapeHtml(s.region)}</td>
+          <td class="py-3 px-4 text-center">
+            <div class="inline-flex items-center gap-1">
+              <button onclick="editStoreItem(${idx})" title="Edit Toko" class="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50">
+                <i data-lucide="pencil" class="w-4 h-4"></i>
+              </button>
+              <button onclick="deleteStoreItem(${idx})" title="Hapus Toko" class="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+
+      lucide.createIcons({ nodes: [tbody] });
+    }
+
+    function saveStoreItem(e) {
+      e.preventDefault();
+      const idx = parseInt(document.getElementById('edit-store-index').value, 10);
+      const code = document.getElementById('input-store-code').value.trim().toUpperCase();
+      const name = document.getElementById('input-store-name').value.trim();
+      const region = document.getElementById('input-store-region').value.trim();
+
+      if (!code || !name || !region) return;
+
+      // Cek duplikasi Kode Toko
+      const duplicateIdx = appState.stores.findIndex(s => s.code.toUpperCase() === code);
+      if (duplicateIdx !== -1 && duplicateIdx !== idx) {
+        showToast(`Kode Toko "${code}" sudah terdaftar!`, 'error');
+        return;
+      }
+
+      if (idx >= 0) {
+        appState.stores[idx] = { code, name, region };
+        showToast('Data toko berhasil diperbarui.', 'success');
+      } else {
+        appState.stores.push({ code, name, region });
+        showToast('Toko baru berhasil ditambahkan.', 'success');
+      }
+
+      saveStores();
+      resetStoreForm();
+      renderAdminStoresTable();
+      renderAdminStoreSheetTabs();
+    }
+
+    function editStoreItem(idx) {
+      const s = appState.stores[idx];
+      document.getElementById('edit-store-index').value = idx;
+      document.getElementById('input-store-code').value = s.code;
+      document.getElementById('input-store-name').value = s.name;
+      document.getElementById('input-store-region').value = s.region;
+      document.getElementById('store-form-title').textContent = 'Edit Data Toko';
+      document.getElementById('store-form-cancel').classList.remove('hidden');
+    }
+
+    function resetStoreForm() {
+      document.getElementById('edit-store-index').value = '-1';
+      document.getElementById('input-store-code').value = '';
+      document.getElementById('input-store-name').value = '';
+      document.getElementById('input-store-region').value = '';
+      document.getElementById('store-form-title').textContent = 'Tambah Toko Baru';
+      document.getElementById('store-form-cancel').classList.add('hidden');
+    }
+
+    function deleteStoreItem(idx) {
+      const s = appState.stores[idx];
+      showConfirm('Hapus Data Toko?', `Hapus toko "${s.code} - ${s.name}" dari database?`, () => {
+        appState.stores.splice(idx, 1);
+        saveStores();
+        renderAdminStoresTable();
+        renderAdminStoreSheetTabs();
+        showToast('Data toko dihapus.', 'info');
+      });
+    }
+
+    function importStoresExcel(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const replaceMode = Boolean(document.getElementById('store-import-replace-mode') && document.getElementById('store-import-replace-mode').checked);
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          if (!window.XLSX) throw new Error('Library XLSX belum dimuat.');
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          if (!firstSheetName) throw new Error('Sheet Excel kosong.');
+          const firstSheet = workbook.Sheets[firstSheetName];
+          const jsonRows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+
+          const nextStores = replaceMode ? [] : [...appState.stores];
+          let importedCount = 0;
+          let skippedCount = 0;
+
+          jsonRows.forEach(row => {
+            const keys = Object.keys(row || {});
+            const codeKey = keys.find(k => /^(kode[_\s]*toko|kode|store[_\s]*code)$/i.test(k.trim())) ||
+                            keys.find(k => k.toLowerCase().includes('kode'));
+            const nameKey = keys.find(k => /^(nama[_\s]*toko|nama|toko|store[_\s]*name)$/i.test(k.trim())) ||
+                            keys.find(k => k.toLowerCase().includes('nama') || k.toLowerCase().includes('toko'));
+            const regionKey = keys.find(k => /^(wilayah|area|regional|region)$/i.test(k.trim())) ||
+                              keys.find(k => k.toLowerCase().includes('wilayah') || k.toLowerCase().includes('area'));
+
+            const code = codeKey ? String(row[codeKey]).trim().toUpperCase() : '';
+            const name = nameKey ? String(row[nameKey]).trim() : '';
+            const region = regionKey ? String(row[regionKey]).trim() : '-';
+
+            if (!code || !name) {
+              skippedCount++;
+              return;
+            }
+
+            const existingIdx = nextStores.findIndex(s => s.code.toUpperCase() === code);
+            if (existingIdx >= 0) {
+              nextStores[existingIdx] = { code, name, region: region || '-' };
+            } else {
+              nextStores.push({ code, name, region: region || '-' });
+            }
+            importedCount++;
+          });
+
+          appState.stores = nextStores;
+          saveStores();
+          markDataUpdated();
+          renderAdminStoresTable();
+          renderAdminStoreSheetTabs();
+          syncMasterDataToGSheet();
+          showToast(`Import Toko: ${importedCount} diproses (${skippedCount} baris kosong/tidak valid diabaikan).`, 'success');
+        } catch (err) {
+          handleFatalError('importStoresExcel', err);
+        } finally {
+          event.target.value = '';
+        }
+      };
+      reader.onerror = function () {
+        event.target.value = '';
+        showToast('Gagal membaca file dari perangkat.', 'error');
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function downloadStoreTemplate() {
+      const templateData = [
+        { 'Kode Toko': 'TK-005', 'Nama Toko': 'BK Pakuwon Mall Jogja', 'Wilayah': 'DI Yogyakarta' },
+        { 'Kode Toko': 'TK-006', 'Nama Toko': 'BK Paragon Semarang', 'Wilayah': 'Jawa Tengah' }
+      ];
+      const ws = XLSX.utils.json_to_sheet(templateData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Template_Toko');
+      XLSX.writeFile(wb, 'Template_Database_Toko.xlsx');
+    }
+
+    // --- CRUD & Import Excel Database Group Barang ---
+    function renderAdminGroupsTable() {
+      const tbody = document.getElementById('admin-groups-tbody');
+      document.getElementById('total-groups-badge').textContent = `${appState.groups.length} Group`;
+
+      if (appState.groups.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" class="py-8 text-center text-slate-400">Belum ada database group barang.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = appState.groups.map((g, idx) => `
+        <tr class="hover:bg-slate-50">
+          <td class="py-3 px-4 font-mono font-bold text-indigo-700">${escapeHtml(g.code)}</td>
+          <td class="py-3 px-4 font-medium text-slate-900">${escapeHtml(g.name)}</td>
+          <td class="py-3 px-4 text-center">
+            <div class="inline-flex items-center gap-1">
+              <button onclick="editGroupItem(${idx})" title="Edit Group" class="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50">
+                <i data-lucide="pencil" class="w-4 h-4"></i>
+              </button>
+              <button onclick="deleteGroupItem(${idx})" title="Hapus Group" class="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+
+      lucide.createIcons({ nodes: [tbody] });
+    }
+
+    function saveGroupItem(e) {
+      e.preventDefault();
+      const idx = parseInt(document.getElementById('edit-group-index').value, 10);
+      const code = document.getElementById('input-group-code').value.trim().toUpperCase();
+      const name = document.getElementById('input-group-name').value.trim();
+
+      if (!code || !name) return;
+
+      const duplicateIdx = appState.groups.findIndex(g => g.code.toUpperCase() === code);
+      if (duplicateIdx !== -1 && duplicateIdx !== idx) {
+        showToast(`Kode Korner "${code}" sudah ada!`, 'error');
+        return;
+      }
+
+      if (idx >= 0) {
+        appState.groups[idx] = { code, name };
+        showToast('Group barang berhasil diperbarui.', 'success');
+      } else {
+        appState.groups.push({ code, name });
+        showToast('Group barang baru berhasil ditambahkan.', 'success');
+      }
+
+      saveGroups();
+      resetGroupForm();
+      renderAdminGroupsTable();
+    }
+
+    function editGroupItem(idx) {
+      const g = appState.groups[idx];
+      document.getElementById('edit-group-index').value = idx;
+      document.getElementById('input-group-code').value = g.code;
+      document.getElementById('input-group-name').value = g.name;
+      document.getElementById('group-form-title').textContent = 'Edit Group Barang';
+      document.getElementById('group-form-cancel').classList.remove('hidden');
+    }
+
+    function resetGroupForm() {
+      document.getElementById('edit-group-index').value = '-1';
+      document.getElementById('input-group-code').value = '';
+      document.getElementById('input-group-name').value = '';
+      document.getElementById('group-form-title').textContent = 'Tambah Group Barang';
+      document.getElementById('group-form-cancel').classList.add('hidden');
+    }
+
+    function deleteGroupItem(idx) {
+      const g = appState.groups[idx];
+      showConfirm('Hapus Group Barang?', `Hapus "${g.code} - ${g.name}" dari database?`, () => {
+        appState.groups.splice(idx, 1);
+        saveGroups();
+        renderAdminGroupsTable();
+        showToast('Group barang dihapus.', 'info');
+      });
+    }
+
+    function importGroupsExcel(event) {
+      const file = event.target.files && event.target.files[0];
+      if (!file) return;
+      const replaceMode = Boolean(document.getElementById('group-import-replace-mode') && document.getElementById('group-import-replace-mode').checked);
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          if (!window.XLSX) throw new Error('Library XLSX belum dimuat.');
+          const data = new Uint8Array(e.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          if (!firstSheetName) throw new Error('Sheet Excel kosong.');
+          const firstSheet = workbook.Sheets[firstSheetName];
+          const jsonRows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+
+          const nextGroups = replaceMode ? [] : [...appState.groups];
+          let importedCount = 0;
+          let skippedCount = 0;
+
+          jsonRows.forEach(row => {
+            const keys = Object.keys(row || {});
+            const codeKey = keys.find(k => /^(kode[_\s]*korner|korner|kode)$/i.test(k.trim())) ||
+                            keys.find(k => k.toLowerCase().includes('kode') || k.toLowerCase().includes('korner'));
+            const nameKey = keys.find(k => /^(nama[_\s]*group|group[_\s]*brg|group|nama)$/i.test(k.trim())) ||
+                            keys.find(k => k.toLowerCase().includes('nama') || k.toLowerCase().includes('group'));
+
+            const code = codeKey ? String(row[codeKey]).trim().toUpperCase() : '';
+            const name = nameKey ? String(row[nameKey]).trim() : '';
+
+            if (!code || !name) {
+              skippedCount++;
+              return;
+            }
+
+            const existingIdx = nextGroups.findIndex(g => g.code.toUpperCase() === code);
+            if (existingIdx >= 0) {
+              nextGroups[existingIdx] = { code, name };
+            } else {
+              nextGroups.push({ code, name });
+            }
+            importedCount++;
+          });
+
+          appState.groups = nextGroups;
+          saveGroups();
+          markDataUpdated();
+          renderAdminGroupsTable();
+          syncMasterDataToGSheet();
+          showToast(`Import Group: ${importedCount} diproses (${skippedCount} baris kosong/tidak valid diabaikan).`, 'success');
+        } catch (err) {
+          handleFatalError('importGroupsExcel', err);
+        } finally {
+          event.target.value = '';
+        }
+      };
+      reader.onerror = function () {
+        event.target.value = '';
+        showToast('Gagal membaca file dari perangkat.', 'error');
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function downloadGroupTemplate() {
+      const templateData = [
+        { 'Kode Korner': 'KRN-07', 'Nama Group': 'Celana Sirwal & Chinos' },
+        { 'Kode Korner': 'KRN-08', 'Nama Group': 'Hijab Segi Empat & Pashmina' }
+      ];
+      const ws = XLSX.utils.json_to_sheet(templateData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Template_Group_Barang');
+      XLSX.writeFile(wb, 'Template_Database_Group_Barang.xlsx');
+    }
+
+    // --- Pengaturan Google Sheets & Keamanan PIN ---
+    function saveGSheetSettings(e) {
+      e.preventDefault();
+      const rawUrl = document.getElementById('input-gsheet-url').value.trim();
+      if (rawUrl && !/^https:\/\/script\.google\.com\/macros\/s\/.+/i.test(rawUrl)) {
+        showToast('Format URL Google Apps Script Web App tidak valid (harus diawali https://script.google.com/macros/s/).', 'warning');
+        return;
+      }
+      appState.config.gsheetUrl = rawUrl;
+      appState.config.refreshInterval = parseInt(document.getElementById('input-refresh-interval').value, 10) || 30;
+      appState.config.syncStatus = rawUrl ? 'connected' : 'local';
+      markDataUpdated();
+      startAutoRefreshLoop();
+      updateSyncStatusBadge();
+      showToast('Konfigurasi Google Sheets & interval refresh disimpan.', 'success');
+    }
+
+    function copyAppsScriptCode() {
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(APPS_SCRIPT_TEMPLATE).catch(() => {});
+        }
+        const textarea = document.createElement('textarea');
+        textarea.value = APPS_SCRIPT_TEMPLATE;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast('Kode Google Apps Script (Code.gs) berhasil disalin!', 'success');
+      } catch (err) {
+        handleFatalError('copyAppsScriptCode', err);
+      }
+    }
+
+    async function updateSecurityPins(e) {
+      e.preventDefault();
+      const rawStorePin = document.getElementById('setting-store-pin').value.trim();
+      const rawAdminPin = document.getElementById('setting-admin-pin').value.trim();
+
+      if (!rawStorePin && !rawAdminPin) {
+        showToast('Isi minimal satu PIN baru (Tim Toko atau Admin) untuk menyimpan perubahan.', 'warning');
+        return;
+      }
+
+      if (rawStorePin && rawStorePin.length < 4) {
+        showToast('PIN Tim Toko minimal 4 karakter/digit.', 'error');
+        return;
+      }
+      if (rawAdminPin && rawAdminPin.length < 4) {
+        showToast('PIN Admin minimal 4 karakter/digit.', 'error');
+        return;
+      }
+
+      if (rawStorePin) {
+        appState.security.storePinHash = await hashPinValue(rawStorePin);
+        appState.security.hideStoreHint = true;
+      }
+      if (rawAdminPin) {
+        appState.security.adminPinHash = await hashPinValue(rawAdminPin);
+        appState.security.hideAdminHint = true;
+      }
+
+      saveSecurity();
+      markDataUpdated();
+      document.getElementById('setting-store-pin').value = '';
+      document.getElementById('setting-admin-pin').value = '';
+      updatePinHintVisibility();
+      await syncMasterDataToGSheet({ pinUpdatedAt: new Date().toISOString() });
+      showToast('PIN Keamanan berhasil diperbarui & di-hash SHA-256!', 'success');
+    }
+
+    function confirmFactoryResetLocal() {
+      showConfirm(
+        'Reset Semua Data Lokal?',
+        'Tindakan ini akan menghapus data lokal (laporan, database toko/group, PIN hash, dan konfigurasi) lalu memuat ulang halaman.',
+        () => {
+          try {
+            Object.values(STORAGE_KEYS).forEach(k => localStorage.removeItem(k));
+            sessionStorage.removeItem(STORAGE_KEYS.SESSION);
+          } catch (_) {}
+          window.location.reload();
+        }
+      );
+    }
+
+    function copyAppsScriptCode() {
+      const textarea = document.createElement('textarea');
+      textarea.value = APPS_SCRIPT_TEMPLATE;
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      showToast('Kode Google Apps Script (Code.gs) berhasil disalin ke clipboard!', 'success');
+    }
+
+    function updateSecurityPins(e) {
+      e.preventDefault();
+      const newStorePin = document.getElementById('setting-store-pin').value.trim();
+      const newAdminPin = document.getElementById('setting-admin-pin').value.trim();
+
+      if (newStorePin.length < 4 || newAdminPin.length < 4) {
+        showToast('PIN harus terdiri dari minimal 4 digit angka.', 'error');
+        return;
+      }
+
+      appState.config.storePin = newStorePin;
+      appState.config.adminPin = newAdminPin;
+      saveConfig();
+      showToast('PIN Keamanan Tim Toko & Admin berhasil diperbarui!', 'success');
+    }
+
+    // =========================================================================
+    // 9. EXPORT EXCEL MULTI-SHEET (1 TOKO = 1 SHEET)
+    // =========================================================================
+    function formatOrderForExcelRow(o) {
+      return {
+        'Timestamp': o.timestamp,
+        'Kode Toko': o.storeCode,
+        'Nama Toko': o.storeName,
+        'Wilayah': o.region,
+        'Kode Korner': o.kornerCode,
+        'Group Brg': o.groupName,
+        'Stock Awal': o.stockAwal,
+        'QTY Penerimaan': o.qtyPenerimaan,
+        'QTY Penjualan': o.qtyPenjualan,
+        'QTY Return': o.qtyReturn,
+        'Stock Akhir': o.stockAkhir,
+        'Note': o.note
+      };
+    }
+
+    function exportCurrentStoreExcel() {
+      const store = appState.session.store;
+      // Gabungkan draft yang terisi + riwayat toko ini
+      const draftValid = appState.draftRows
+        .filter(r => r.kornerCode.trim() !== '' || r.groupName.trim() !== '')
+        .map(r => {
+          const m = calculateRowMetrics(r);
+          return {
+            timestamp: new Date().toLocaleString('id-ID'),
+            storeCode: store.code,
+            storeName: store.name,
+            region: store.region,
+            kornerCode: r.kornerCode || '-',
+            groupName: r.groupName || '-',
+            stockAwal: m.awal,
+            qtyPenerimaan: m.terima,
+            qtyPenjualan: m.jual,
+            qtyReturn: m.ret,
+            stockAkhir: m.stockAkhir,
+            note: m.isUrgent ? 'Urgent' : 'Aman'
+          };
+        });
+
+      const historyStore = appState.orders.filter(o => o.storeCode === store.code);
+      const combined = [...draftValid, ...historyStore];
+
+      if (combined.length === 0) {
+        showToast('Belum ada data pada toko ini untuk di-export.', 'warning');
+        return;
+      }
+
+      const wb = XLSX.utils.book_new();
+      const sheetName = `${store.code}-${store.name}`.replace(/[\\\/\?\*\[\]:]/g, '').substring(0, 31);
+      const ws = XLSX.utils.json_to_sheet(combined.map(formatOrderForExcelRow));
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+      XLSX.writeFile(wb, `Replenishment_${store.code}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      showToast('File Excel toko berhasil diunduh.', 'success');
+    }
+
+    function exportAllStoresMultiSheetExcel() {
+      if (appState.orders.length === 0) {
+        showToast('Belum ada laporan masuk dari toko untuk di-export.', 'warning');
+        return;
+      }
+
+      const wb = XLSX.utils.book_new();
+      let sheetCreated = 0;
+
+      // Kelompokkan berdasarkan setiap toko (1 Toko = 1 Sheet)
+      const storeCodesInOrders = [...new Set(appState.orders.map(o => o.storeCode))];
+      storeCodesInOrders.forEach(code => {
+        const rows = appState.orders.filter(o => o.storeCode === code);
+        if (rows.length > 0) {
+          const storeName = rows[0].storeName || code;
+          const sheetName = `${code}-${storeName}`.replace(/[\\\/\?\*\[\]:]/g, '').substring(0, 31);
+          const ws = XLSX.utils.json_to_sheet(rows.map(formatOrderForExcelRow));
+          XLSX.utils.book_append_sheet(wb, ws, sheetName);
+          sheetCreated++;
+        }
+      });
+
+      XLSX.writeFile(wb, `BK_Replenishment_All_Stores_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      showToast(`Berhasil mengunduh Excel dengan ${sheetCreated} sheet terpisah (1 Toko = 1 Sheet)!`, 'success');
+    }
+
+    // =========================================================================
+    // 10. AUTO-REFRESH BERKALA & SINKRONISASI ANTAR TAB
+    // =========================================================================
+    async function pullFromGoogleSheets(silent = true) {
+      const url = appState.config.gsheetUrl;
+      if (!url) return;
+
+      try {
+        const res = await fetch(url);
+        const json = await res.json();
+        if (json && json.status === 'success' && Array.isArray(json.rows)) {
+          // Gabungkan data dari GSheet dengan data lokal yang belum tersinkron
+          const unsyncedLocal = appState.orders.filter(o => !o.synced);
+          const remoteWithIds = json.rows.map((r, i) => ({
+            ...r,
+            id: `gs_${i}_${r.storeCode}_${r.kornerCode}_${r.timestamp}`,
+            synced: true
+          }));
+          appState.orders = [...unsyncedLocal, ...remoteWithIds];
+          saveOrders();
+          if (!silent) showToast(`Berhasil menarik ${remoteWithIds.length} baris terbaru dari Google Sheets.`, 'success');
+        }
+      } catch (err) {
+        if (!silent) showToast('Tidak dapat menarik data dari URL Google Sheets (pastikan akses Web App = Anyone).', 'warning');
+      }
+    }
+
+    async function testGSheetConnection() {
+      const url = document.getElementById('input-gsheet-url').value.trim();
+      if (!url) {
+        showToast('Masukkan URL Google Apps Script terlebih dahulu.', 'warning');
+        return;
+      }
+      appState.config.gsheetUrl = url;
+      saveConfig();
+      await pullFromGoogleSheets(false);
+      if (appState.session && appState.session.role === 'admin') {
+        renderAdminStoreSheetTabs();
+        renderAdminReportsTable();
+      }
+    }
+
+    async function manualRefreshData() {
+      const icon = document.getElementById('refresh-icon');
+      if (icon) icon.classList.add('animate-spin');
+
+      loadAllDataFromStorage();
+      if (appState.config.gsheetUrl) {
+        await pullFromGoogleSheets(true);
+      }
+
+      if (appState.session) {
+        if (appState.session.role === 'store') {
+          updateKornerDatalist();
+          renderStoreHistoryTable();
+        } else {
+          renderAdminStoreSheetTabs();
+          renderAdminReportsTable();
+          renderAdminStoresTable();
+          renderAdminGroupsTable();
+        }
+      }
+
+      updateSyncTimestamp();
+      setTimeout(() => {
+        if (icon) icon.classList.remove('animate-spin');
+      }, 500);
+      showToast('Data telah diperbarui.', 'info');
+    }
+
+    function updateSyncTimestamp() {
+      const el = document.getElementById('last-sync-time');
+      if (el) {
+        el.textContent = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
+    }
+
+    function startAutoRefreshLoop() {
+      if (appState.refreshTimerId) clearInterval(appState.refreshTimerId);
+      const sec = appState.config.refreshInterval || 15;
+      const statusLabel = document.getElementById('sync-status-text');
+      if (statusLabel) statusLabel.textContent = `Auto-Sync Aktif (${sec}d)`;
+
+      appState.refreshTimerId = setInterval(async () => {
+        loadAllDataFromStorage();
+        if (appState.config.gsheetUrl) {
+          await pullFromGoogleSheets(true);
+        }
+        if (appState.session) {
+          if (appState.session.role === 'store') {
+            updateKornerDatalist();
+            renderStoreHistoryTable();
+          } else {
+            renderAdminStoreSheetTabs();
+            renderAdminReportsTable();
+          }
+        }
+        updateSyncTimestamp();
+      }, sec * 1000);
+    }
+
+    // Sinkronisasi instan antar tab browser jika Admin mengedit database atau Toko mengirim laporan
+    window.addEventListener('storage', (e) => {
+      if (Object.values(STORAGE_KEYS).includes(e.key)) {
+        loadAllDataFromStorage();
+        if (!appState.session) {
+          renderLoginStoreDropdown();
+        } else if (appState.session.role === 'store') {
+          updateKornerDatalist();
+          renderStoreHistoryTable();
+        } else if (appState.session.role === 'admin') {
+          renderAdminStoreSheetTabs();
+          renderAdminReportsTable();
+          renderAdminStoresTable();
+          renderAdminGroupsTable();
+        }
+        updateSyncTimestamp();
+      }
+    });
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // =========================================================================
+    // 11. BOOTSTRAP APLIKASI SAAT HALAMAN DIMUAT
+    // =========================================================================
+    // 10. AUTO-REFRESH BERKALA, TIMEOUT FETCH & SINKRONISASI ANTAR TAB
+    // =========================================================================
+    function updateSyncStatusBadge() {
+      const dot = document.getElementById('sync-dot');
+      const label = document.getElementById('sync-status-text');
+      const sec = appState.config.refreshInterval || 30;
+      if (!dot || !label) return;
+
+      if (appState.isSyncing) {
+        dot.className = 'w-2 h-2 rounded-full bg-indigo-500 animate-ping';
+        label.textContent = 'Menyinkronkan...';
+      } else if (!appState.config.gsheetUrl) {
+        dot.className = 'w-2 h-2 rounded-full bg-slate-400';
+        label.textContent = `Mode Lokal (${sec}d)`;
+      } else if (appState.config.syncStatus === 'error') {
+        dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+        label.textContent = `Error Jaringan (${sec}d)`;
+      } else {
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+        label.textContent = `Terhubung GSheet (${sec}d)`;
+      }
+    }
+
+    async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, { ...options, signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    async function pushRowsToGoogleSheets(records) {
+      const url = appState.config.gsheetUrl;
+      if (!url || appState.isSyncing) return false;
+
+      appState.isSyncing = true;
+      appState.config.syncStatus = 'syncing';
+      saveConfig();
+      updateSyncStatusBadge();
+
+      try {
+        await fetchWithTimeout(url, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'append_orders', rows: records, updatedAt: appState.config.lastUpdated })
+        }, 15000);
+
+        const sentIds = new Set(records.map(r => r.id));
+        appState.orders = appState.orders.map(o => sentIds.has(o.id) ? { ...o, synced: true } : o);
+        saveOrders();
+        appState.config.syncStatus = 'connected';
+        saveConfig();
+        updateSyncTimestamp();
+        showToast(`${records.length} baris terkirim ke Google Sheets (1 Toko = 1 Sheet).`, 'success');
+        return true;
+      } catch (err) {
+        console.warn('GSheet POST timeout/error:', err);
+        appState.config.syncStatus = 'error';
+        saveConfig();
+        showToast('Data tersimpan lokal; koneksi GSheet timeout/gangguan jaringan.', 'warning');
+        return false;
+      } finally {
+        appState.isSyncing = false;
+        updateSyncStatusBadge();
+      }
+    }
+
+    async function syncMasterDataToGSheet(securityMeta = null) {
+      const url = appState.config.gsheetUrl;
+      if (!url || appState.isSyncing) return;
+
+      appState.isSyncing = true;
+      appState.config.syncStatus = 'syncing';
+      updateSyncStatusBadge();
+
+      try {
+        await fetchWithTimeout(url, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'sync_master',
+            stores: appState.stores,
+            groups: appState.groups,
+            securityMeta: securityMeta,
+            updatedAt: appState.config.lastUpdated
+          })
+        }, 15000);
+        appState.config.syncStatus = 'connected';
+        saveConfig();
+        updateSyncTimestamp();
+      } catch (err) {
+        console.warn('Sync master GSheet gagal:', err);
+        appState.config.syncStatus = 'error';
+        saveConfig();
+      } finally {
+        appState.isSyncing = false;
+        updateSyncStatusBadge();
+      }
+    }
+
+    async function pullFromGoogleSheets(silent = true) {
+      const url = appState.config.gsheetUrl;
+      if (!url || appState.isSyncing) return;
+
+      appState.isSyncing = true;
+      appState.config.syncStatus = 'syncing';
+      updateSyncStatusBadge();
+
+      try {
+        const res = await fetchWithTimeout(url, { method: 'GET' }, 15000);
+        const json = await res.json();
+        if (json && json.status === 'success' && Array.isArray(json.rows)) {
+          const unsyncedLocal = appState.orders.filter(o => !o.synced);
+          const remoteWithIds = json.rows.map((r, i) => ({
+            ...r,
+            id: `gs_${i}_${r.storeCode}_${r.kornerCode}_${r.timestamp}`,
+            synced: true
+          }));
+          appState.orders = [...unsyncedLocal, ...remoteWithIds];
+          saveOrders();
+          appState.config.syncStatus = 'connected';
+          saveConfig();
+          if (!silent) showToast(`Berhasil menarik ${remoteWithIds.length} baris dari Google Sheets.`, 'success');
+        }
+      } catch (err) {
+        console.warn('Pull GSheet gagal:', err);
+        appState.config.syncStatus = 'error';
+        saveConfig();
+        if (!silent) showToast('Gagal menarik data dari Google Sheets (periksa akses Web App & koneksi).', 'warning');
+      } finally {
+        appState.isSyncing = false;
+        updateSyncStatusBadge();
+      }
+    }
+
+    async function testGSheetConnection() {
+      const url = document.getElementById('input-gsheet-url').value.trim();
+      if (!url) {
+        showToast('Masukkan URL Google Apps Script terlebih dahulu.', 'warning');
+        return;
+      }
+      appState.config.gsheetUrl = url;
+      saveConfig();
+      await pullFromGoogleSheets(false);
+      if (appState.session && appState.session.role === 'admin') {
+        renderAdminStoreSheetTabs();
+        renderAdminReportsTable();
+      }
+    }
+
+    async function manualRefreshData() {
+      const icon = document.getElementById('refresh-icon');
+      if (icon) icon.classList.add('animate-spin');
+
+      try {
+        await loadAllDataFromStorage();
+        if (appState.config.gsheetUrl) {
+          await pullFromGoogleSheets(true);
+        }
+
+        if (appState.session) {
+          if (appState.session.role === 'store') {
+            updateKornerDatalist();
+            renderStoreHistoryTable();
+          } else {
+            renderAdminStoreSheetTabs();
+            renderAdminReportsTable();
+            renderAdminStoresTable();
+            renderAdminGroupsTable();
+          }
+        }
+
+        updateSyncTimestamp();
+        updateSyncStatusBadge();
+        showToast('Data berhasil diperbarui.', 'info');
+      } catch (err) {
+        handleFatalError('manualRefreshData', err);
+      } finally {
+        setTimeout(() => {
+          if (icon) icon.classList.remove('animate-spin');
+        }, 400);
+      }
+    }
+
+    function updateSyncTimestamp() {
+      const el = document.getElementById('last-sync-time');
+      if (el) {
+        el.textContent = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
+    }
+
+    function startAutoRefreshLoop() {
+      if (appState.refreshTimerId) {
+        clearInterval(appState.refreshTimerId);
+        appState.refreshTimerId = null;
+      }
+      const sec = appState.config.refreshInterval || 30;
+      updateSyncStatusBadge();
+
+      appState.refreshTimerId = setInterval(async () => {
+        // Pause auto-refresh saat tab tidak aktif agar hemat kuota & bebas crash
+        if (document.hidden) return;
+        try {
+          await loadAllDataFromStorage();
+          if (appState.config.gsheetUrl && !appState.isSyncing) {
+            await pullFromGoogleSheets(true);
+          }
+          if (appState.session) {
+            if (appState.session.role === 'store') {
+              updateKornerDatalist();
+              renderStoreHistoryTable();
+            } else {
+              renderAdminStoreSheetTabs();
+              renderAdminReportsTable();
+            }
+          }
+          updateSyncTimestamp();
+          updateSyncStatusBadge();
+        } catch (err) {
+          console.warn('Auto-refresh tick error:', err);
+        }
+      }, sec * 1000);
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden && appState.session) {
+        loadAllDataFromStorage().then(() => {
+          updateSyncStatusBadge();
+        });
+      }
+    });
+
+    window.addEventListener('storage', (e) => {
+      if (Object.values(STORAGE_KEYS).includes(e.key)) {
+        loadAllDataFromStorage().then(() => {
+          if (!appState.session) {
+            renderLoginStoreDropdown();
+            updatePinHintVisibility();
+            updateLockoutUI();
+          } else if (appState.session.role === 'store') {
+            updateKornerDatalist();
+            renderStoreHistoryTable();
+          } else if (appState.session.role === 'admin') {
+            renderAdminStoreSheetTabs();
+            renderAdminReportsTable();
+            renderAdminStoresTable();
+            renderAdminGroupsTable();
+          }
+          updateSyncTimestamp();
+          updateSyncStatusBadge();
+        });
+      }
+    });
+
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // =========================================================================
+    // 11. BOOTSTRAP APLIKASI SAAT HALAMAN DIMUAT
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', async () => {
+      try {
+        await loadAllDataFromStorage();
+        startLockoutTicker();
+        renderAppView();
+        updateSyncTimestamp();
+        startAutoRefreshLoop();
+        if (window.lucide) lucide.createIcons();
+      } catch (err) {
+        handleFatalError('DOMContentLoaded', err);
+      }
+    });
+  </script>
+</body>
+</html>
